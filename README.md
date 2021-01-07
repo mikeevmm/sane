@@ -93,14 +93,14 @@ from the associated function's name. Two recipes cannot share the same name.
 `file_deps` - The file dependencies of this recipe ([str]). This recipe is ran
 if the newest of these files is newer that the oldest of the `target_files`.
 
-`target_files` - Files to check against `file_deps`.
+`target_files` - Files to check against `file_deps` ([str]).
 
-`recipe_deps` - The recipe dependencies of this recipe; before running this
-recipe, these are checked. If any is ran, this recipe is ran.
+`recipe_deps` - The recipe dependencies of this recipe ([str or fn]); before
+running this recipe, these are checked. If any is ran, this recipe is ran.
 
-`hook_deps` - The hook dependencies of this recipe; before running this recipe,
-all recipes with any of these hooks are checked. If any is ran, this recipe is
-ran.
+`hook_deps` - The hook dependencies of this recipe ([str]); before running this
+recipe, all recipes with any of these hooks are checked. If any is ran, this
+recipe is ran.
 
 ## License
 
