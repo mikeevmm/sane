@@ -3,6 +3,8 @@ README.md
 sane.py
 setup.py
 test.py
+dist/sane-miguelmurca-2.0.tar.gz
+dist/sane_miguelmurca-2.0-py3-none-any.whl
 sane_miguelmurca.egg-info/PKG-INFO
 sane_miguelmurca.egg-info/SOURCES.txt
 sane_miguelmurca.egg-info/dependency_links.txt
