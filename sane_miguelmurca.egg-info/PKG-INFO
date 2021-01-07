@@ -122,6 +122,6 @@ Description: # Sane
 Platform: UNKNOWN
 Classifier: Programming Language :: Python :: 3
 Classifier: License :: OSI Approved :: MIT License
-Classifier: Operating System :: GNU/Linux
+Classifier: Operating System :: POSIX
 Requires-Python: >=3.6
 Description-Content-Type: text/markdown
