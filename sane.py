@@ -245,14 +245,14 @@ def _run_recipe(recipe, force=False):
     if not any_ran:
         _log(f"Checking file dependencies of recipe '{recipe}'",
                 _VerboseLevel.VERY_VERBOSE)
-        dep_oldest = None 
+        dep_newest = None 
         for file_dep in _file_dependencies.get(recipe, []):
             if not os.path.exists(file_dep):
-                dep_oldest = None
+                dep_newest = None
                 break
             modification_time = os.stat(file_dep).st_mtime
-            if dep_oldest is None or modification_time > dep_oldest:
-                dep_oldest = modification_time
+            if dep_newest is None or modification_time < dep_oldest:
+                dep_newest = modification_time
 
         target_oldest = None
         for target in _target_files.get(recipe, []):
@@ -263,9 +263,9 @@ def _run_recipe(recipe, force=False):
             if target_oldest is None or modification_time > target_oldest:
                 target_oldest = modification_time
 
-        if dep_oldest is None \
+        if dep_newest is None \
                 or target_oldest is None \
-                or dep_oldest > target_oldest:
+                or dep_newest > target_oldest:
             run = True
 
     if force or run:
