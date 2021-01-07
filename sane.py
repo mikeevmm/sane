@@ -238,6 +238,9 @@ def _run_recipe(recipe, force=False):
     dependencies = _recipe_dependencies.get(recipe, [])
     for hook in _hook_dependencies.get(recipe, []):
         dependencies.extend(_hooks.get(hook, []))
+    _log(f"Found the following dependencies for recipe '{recipe}':\n" + \
+            ('\n'.join(f"  - {dep}" for dep in dependencies)),
+            _VerboseLevel.VERY_VERBOSE)
 
     any_ran = False
     for dependency in dependencies:
