@@ -10,13 +10,15 @@ EXE = "main"
 c_sources = glob("src/*.c")
 
 for sourcefile in c_sources:
+    objectfile = sourcefile + '.o'
     @recipe(
         name=f"compile_{sourcefile}",
         hooks=["compilation"],
-        file_deps=[sourcefile, f"{sourcefile}.o"])
+        target_files=[objectfile],
+        file_deps=[sourcefile])
     def compile():
         makedirs("obj/", exist_ok=True)
-        sp.run(f"{CC} -c {sourcefile} -o {sourcefile}.o", shell=True)
+        sp.run(f"{CC} -c {sourcefile} -o {objectfile}", shell=True)
 
 @recipe(hook_deps=["compilation"])
 def link():

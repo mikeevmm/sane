@@ -10,6 +10,9 @@ Sane is Makefile for humans.
 A depends on file F1 and recipe B, and recipe B depends on file F2, then A is
 only ran if F1 is older than F2.
 
+- Recipes are ran if its dependency files are newer than its target files (or if
+either cannot be found).
+
 - Recipes with no dependencies are always ran.
 
 - Hooks are a way to tag dependencies. Recipes depending on a hook depend on all
@@ -50,20 +53,16 @@ EXE = "main"
 
 c_sources = glob("src/*.c")
 
-# Define a recipe for each of the C source files...
 for sourcefile in c_sources:
-    objectfile = f"{sourcefile}.o"
-
+    objectfile = sourcefile + '.o'
     @recipe(
         name=f"compile_{sourcefile}",
         hooks=["compilation"],
-        file_deps=[sourcefile, objectfile])
+        target_files=[objectfile],
+        file_deps=[sourcefile])
     def compile():
         makedirs("obj/", exist_ok=True)
-        sp.run(f"{CC} -c {sourcefile} -o {sourcefile}.o", shell=True)
-
-# All compilation recipes have the compilation hook, so the linking
-# recipe simply depends on this hook
+        sp.run(f"{CC} -c {sourcefile} -o {objectfile}", shell=True)
 
 @recipe(hook_deps=["compilation"])
 def link():
@@ -73,6 +72,35 @@ def link():
 sane_run(link)
 
 ```
+
+## The `@recipe` Decorator
+
+```python
+@recipe(
+    name="...",
+    hooks=[...],
+    file_deps=[...],
+    target_files=[...],
+    recipe_deps=[...],
+    hook_deps=[...])
+```
+
+`name` - The name of the recipe (str). If none is given, the name is inferred
+from the associated function's name. Two recipes cannot share the same name.
+
+`hooks` - An array of hooks applicable to the recipe ([str]).
+
+`file_deps` - The file dependencies of this recipe ([str]). This recipe is ran
+if the newest of these files is newer that the oldest of the `target_files`.
+
+`target_files` - Files to check against `file_deps`.
+
+`recipe_deps` - The recipe dependencies of this recipe; before running this
+recipe, these are checked. If any is ran, this recipe is ran.
+
+`hook_deps` - The hook dependencies of this recipe; before running this recipe,
+all recipes with any of these hooks are checked. If any is ran, this recipe is
+ran.
 
 ## License
 
