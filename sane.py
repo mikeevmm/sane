@@ -235,12 +235,16 @@ def _run_recipe(recipe, force=False):
         _log(f"Oldest file dependency of recipe '{recipe}' is {oldest}",
                 _VerboseLevel.VERY_VERBOSE)
     
+    dependencies = _recipe_dependencies.get(recipe, [])
+    for hook in _hook_dependencies.get(recipe, []):
+        dependencies.extend(_hooks.get(hook, []))
+
     any_ran = False
-    for dependency in _recipe_dependencies.get(recipe, []):
+    for dependency in dependencies:
         ran = _run_recipe(dependency, force)
         if ran:
             any_ran = True
-    
+
     if force or oldest is None or any_ran:
         _log(f"Running recipe '{recipe}'", _VerboseLevel.VERBOSE)
         _recipes[recipe]()
