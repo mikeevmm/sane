@@ -1,14 +1,26 @@
-from sane import *
 import subprocess as sp
+from os import makedirs
+from glob import glob
 
-@recipe(file_deps=["another_test_file"])
-def other():
-    sp.run("touch another_test_file", shell=True)
-    print("Ran other")
+from sane import *
 
-@recipe(recipe_deps=[other], file_deps=["a_test_file"])
-def default():
-    sp.run("touch a_test_file", shell=True)
-    print("Hello sane!")
+CC = "gcc"
+EXE = "main"
 
-sane_run(default)
+c_sources = glob("src/*.c")
+
+for sourcefile in c_sources:
+    @recipe(
+        name=f"compile_{sourcefile}",
+        hooks=["compilation"],
+        file_deps=[sourcefile, f"{sourcefile}.o"])
+    def compile():
+        makedirs("obj/", exist_ok=True)
+        sp.run(f"{CC} -c {sourcefile} -o {sourcefile}.o", shell=True)
+
+@recipe(hook_deps=["compilation"])
+def link():
+    obj_files = ' '.join(glob("src/*.o"))
+    sp.run(f"{CC} -o {EXE} {obj_files}", shell=True)
+
+sane_run(link)
