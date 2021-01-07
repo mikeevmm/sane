@@ -40,10 +40,11 @@ _hooks = {}
 _file_dependencies = {}
 _recipe_dependencies = {}
 _hook_dependencies = {}
+_target_files = {}
 
 #### Recipe Decorator ####
 
-def recipe(*args, name=None, hooks=[], file_deps=[], recipe_deps=[], hook_deps=[]):
+def recipe(*args, name=None, hooks=[], file_deps=[], recipe_deps=[], hook_deps=[], target_files=[]):
     if len(args) > 0:
         caller = getframeinfo(stack()[-1][0])
         info = f"{caller.filename}: {caller.lineno}"
@@ -52,7 +53,7 @@ def recipe(*args, name=None, hooks=[], file_deps=[], recipe_deps=[], hook_deps=[
                 "       Are you missing a ()?")
 
     def recipe_fn(fn):
-        nonlocal name, hooks, file_deps, recipe_deps, hook_deps
+        nonlocal name, hooks, file_deps, recipe_deps, hook_deps, target_files
 
         _log(f"Registering recipe {fn}", _VerboseLevel.VERY_VERBOSE)
 
@@ -90,13 +91,17 @@ def recipe(*args, name=None, hooks=[], file_deps=[], recipe_deps=[], hook_deps=[
         if type(hook_deps) not in (list, tuple):
             _error(f"`hook_deps` for recipe '{name}' is not list or tuple")
             exit(1)
-
+        if type(target_files) not in (list, tuple):
+            _error(f"`target_files` for recipe '{name}' is not list or tuple")
+            exit(1)
         
         ## Register the function's dependencies
         # Note that the dependence recipes might not yet be registered,
         # and that we tolerate dependencies on files that do not exist.
         # Sanitize first
         abs_file_deps = [os.path.abspath(path) for path in file_deps]
+        abs_target_files = [os.path.abspath(path) for path in target_files]
+        
         recipe_deps_buf = []
         for recipe_dep in recipe_deps:
             if type(recipe_dep) is not str:
@@ -114,6 +119,11 @@ def recipe(*args, name=None, hooks=[], file_deps=[], recipe_deps=[], hook_deps=[
                 exit(1)
 
         _file_dependencies.setdefault(name, []).extend(abs_file_deps)
+        _target_files.setdefault(name, []).extend(abs_target_files)
+
+        if len(abs_target_files) == 0 and len(abs_file_deps) > 0:
+            _warn(f"Recipe '{name}' has file dependencies, but no target files")
+
         _recipe_dependencies.setdefault(name, []).extend(recipe_deps)
         _hook_dependencies.setdefault(name, []).extend(hook_deps)
 
@@ -218,23 +228,6 @@ def _run_recipe(recipe, force=False):
     # Check the oldest file this depends on; if any
     # dependency of this is more recent, rerun.
     # Greater m_time means more recent modification
-    _log(f"Checking file dependencies of recipe '{recipe}'",
-            _VerboseLevel.VERY_VERBOSE)
-    oldest = None 
-    for file_dep in _file_dependencies.get(recipe, []):
-        if not os.path.exists(file_dep):
-            oldest = None
-            break
-        modification_time = os.stat(file_dep).st_mtime
-        if oldest is None or modification_time > oldest:
-            oldest = modification_time
-    if oldest is None:
-        _log(f"Recipe '{recipe}' has non-existing dependency files",
-                _VerboseLevel.VERY_VERBOSE)
-    else:
-        _log(f"Oldest file dependency of recipe '{recipe}' is {oldest}",
-                _VerboseLevel.VERY_VERBOSE)
-    
     dependencies = _recipe_dependencies.get(recipe, [])
     for hook in _hook_dependencies.get(recipe, []):
         dependencies.extend(_hooks.get(hook, []))
@@ -248,7 +241,34 @@ def _run_recipe(recipe, force=False):
         if ran:
             any_ran = True
 
-    if force or oldest is None or any_ran:
+    run = any_ran
+    if not any_ran:
+        _log(f"Checking file dependencies of recipe '{recipe}'",
+                _VerboseLevel.VERY_VERBOSE)
+        dep_oldest = None 
+        for file_dep in _file_dependencies.get(recipe, []):
+            if not os.path.exists(file_dep):
+                dep_oldest = None
+                break
+            modification_time = os.stat(file_dep).st_mtime
+            if dep_oldest is None or modification_time > dep_oldest:
+                dep_oldest = modification_time
+
+        target_oldest = None
+        for target in _target_files.get(recipe, []):
+            if not os.path.exists(target):
+                target_oldest = None
+                break
+            modification_time = os.stat(target).st_mtime
+            if target_oldest is None or modification_time > target_oldest:
+                target_oldest = modification_time
+
+        if dep_oldest is None \
+                or target_oldest is None \
+                or dep_oldest > target_oldest:
+            run = True
+
+    if force or run:
         _log(f"Running recipe '{recipe}'", _VerboseLevel.VERBOSE)
         _recipes[recipe]()
         return True
