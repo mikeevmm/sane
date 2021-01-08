@@ -5,7 +5,7 @@ with open("README.md", 'r', encoding="utf-8") as readme_file:
 
 setuptools.setup(
         name="sane-build",
-        version="2.1",
+        version="2.2",
         author="Miguel Murça",
         author_email="miguel.murca+pypi@gmail.com",
         description="Make, but Sane",
