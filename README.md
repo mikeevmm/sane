@@ -108,4 +108,4 @@ See LICENSE for details.
 
 ## Support
 
-💕 If you liked quik, consider [buying me a coffee](https://www.paypal.me/miguelmurca/2.50).
+💕 If you liked sane, consider [buying me a coffee](https://www.paypal.me/miguelmurca/2.50).
