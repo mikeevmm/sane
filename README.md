@@ -38,6 +38,14 @@ sane_run(default_recipe)
 then `python make.py` runs the default recipe. Call `python make.py --help` for
 more information.
 
+### pip Install
+
+`Sane` can be installed with `pip`:
+
+```bash
+pip install sane-build
+```
+
 ## Example
 
 ```python
