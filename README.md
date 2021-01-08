@@ -6,9 +6,8 @@ Sane is Makefile for humans.
 
 - Recipes are python functions with recipe/file/hook dependencies.
 
-- Recipe dependencies are satisfied in the same fashion as Makefiles: if recipe
-A depends on file F1 and recipe B, and recipe B depends on file F2, then A is
-only ran if F1 is older than F2.
+- If a recipe A depends on recipe B, recipe B is checked. If B is ran, then A
+is ran afterwards.
 
 - Recipes are ran if its dependency files are newer than its target files (or if
 either cannot be found).
