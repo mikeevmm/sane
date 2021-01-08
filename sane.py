@@ -2,6 +2,11 @@ import os
 import argparse
 from inspect import getframeinfo, stack
 
+#### Version ####
+file_dir = os.path.dirname(os.path.realpath(__file__))
+with open(f"{file_dir}/VERSION", 'r') as versionfile:
+    VERSION = int(versionfile.read())
+
 #### Reporting ####
 
 class _AnsiColor:
@@ -251,7 +256,7 @@ def _run_recipe(recipe, force=False):
                 dep_newest = None
                 break
             modification_time = os.stat(file_dep).st_mtime
-            if dep_newest is None or modification_time < dep_oldest:
+            if dep_newest is None or modification_time > dep_newest:
                 dep_newest = modification_time
 
         target_oldest = None
@@ -260,7 +265,7 @@ def _run_recipe(recipe, force=False):
                 target_oldest = None
                 break
             modification_time = os.stat(target).st_mtime
-            if target_oldest is None or modification_time > target_oldest:
+            if target_oldest is None or modification_time < target_oldest:
                 target_oldest = modification_time
 
         if dep_newest is None \
@@ -275,13 +280,13 @@ def _run_recipe(recipe, force=False):
     else:
         _log(f"Skipping recipe '{recipe}'", _VerboseLevel.NONE)
         return False
-    
 
 def sane_run(default=None):
     global _verbose
 
     parser = argparse.ArgumentParser(description="Make, but Sane")
-    parser.add_argument('--version', action='version', version='Sane 2.0')
+    parser.add_argument('--version', action='version',
+            version=f'Sane {VERSION}')
     parser.add_argument('--verbose', metavar='level', type=int, default=0, 
         help="Level of verbosity in logs. "
          f"{_VerboseLevel.NONE} is not verbose, "
