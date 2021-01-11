@@ -5,7 +5,7 @@ from inspect import getframeinfo, stack
 #### Version ####
 file_dir = os.path.dirname(os.path.realpath(__file__))
 with open(f"{file_dir}/VERSION", 'r') as versionfile:
-    VERSION = int(versionfile.read())
+    VERSION = versionfile.read()
 
 #### Reporting ####
 
@@ -33,6 +33,8 @@ def _log(message, min_level=_VerboseLevel.NONE):
     print(f"{_AnsiColor.OKBLUE}[LOG] {message}{_AnsiColor.ENDC}")
 
 def _warn(message, min_level=_VerboseLevel.NONE):
+    if _verbose < min_level:
+        return
     print(f"{_AnsiColor.WARNING}[WARN] {message}{_AnsiColor.ENDC}")
 
 def _error(message):
