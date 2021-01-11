@@ -9,6 +9,22 @@ VERSIONFILE = "VERSION"
 def clean():
     sp.run(f"{RM} build/ dist/ sane_build.egg-info", shell=True)
 
+def read_version():
+    with open(VERSIONFILE, 'r') as version_file:
+        major = version_file.readline() or '1'
+        minor = version_file.readline() or '0'
+    return (int(major), int(minor))
+
+def write_version(major, minor):
+    with open(VERSIONFILE, 'w') as version_file:
+        version_file.write(f'{major}\n')
+        version_file.write(f'{minor}\n')
+
+@recipe()
+def increment_major():
+    major, minor = read_version()
+    write_version(major + 1, 0)
+
 @recipe(
         target_files=[
             *glob("build/*"),
@@ -20,11 +36,8 @@ def clean():
             *glob("tests/*")])
 def build():
     # Increment the version
-    with open(VERSIONFILE, 'r') as version_file:
-        current_version = int(version_file.read())
-    next_version = current_version + 1
-    with open(VERSIONFILE, 'w') as version_file:
-        version_file.write(f'{next_version}')
+    major, minor = read_version()
+    write_version(major, minor + 1)
 
     # Build
     sp.run("python3 setup.py sdist bdist_wheel", shell=True)
