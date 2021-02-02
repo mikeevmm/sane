@@ -1,29 +1,22 @@
 import subprocess as sp
 from glob import glob
 from sane import *
+import setuptools
 
+
+VERSION = "4.1"
 RM = "rm -r"
-VERSIONFILE = "VERSION"
+
+with open('README.md', 'r') as readme:
+    readme = readme.read()
 
 @recipe()
 def clean():
     sp.run(f"{RM} build/ dist/ sane_build.egg-info", shell=True)
 
 def read_version():
-    with open(VERSIONFILE, 'r') as version_file:
-        major = version_file.readline() or '1'
-        minor = version_file.readline() or '0'
+    major, minor = VERSION.split('.')
     return (int(major), int(minor))
-
-def write_version(major, minor):
-    with open(VERSIONFILE, 'w') as version_file:
-        version_file.write(f'{major}\n')
-        version_file.write(f'{minor}\n')
-
-@recipe()
-def increment_major():
-    major, minor = read_version()
-    write_version(major + 1, 0)
 
 @recipe(
         target_files=[
@@ -32,14 +25,32 @@ def increment_major():
             "sane_build.egg-info"],
         file_deps=[
             "sane.py",
-            "setup.py",
             *glob("tests/*")])
 def build():
-    # Increment the version
-    major, minor = read_version()
-    write_version(major, minor + 1)
-
     # Build
+    with open('setup.py', 'w') as setup:
+        setup.write(f"""\
+import setuptools
+setuptools.setup(
+    name="sane-build",
+    version={VERSION},
+    author="Miguel Murça",
+    author_email="miguel.murca+pypi@gmail.com",
+    description="Make, but Sane",
+    long_description=r\"\"\"{readme}\"\"\",
+    long_description_content_type="text/markdown",
+    license="MIT",
+    keywords="make makefiles cmd utility cli",
+    url="https://github.com/mikeevmm/sane",
+    py_modules=["sane"],
+    packages=setuptools.find_packages(),
+    classifiers=[
+        "Programming Language :: Python :: 3",
+        "License :: OSI Approved :: MIT License",
+        "Operating System :: POSIX",
+    ],
+    python_requires='>=3.6',
+)""")
     sp.run("python3 setup.py sdist bdist_wheel", shell=True)
 
 @recipe(recipe_deps=[clean, build])
