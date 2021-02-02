@@ -283,7 +283,7 @@ def sane_run(default=None):
 
     parser = argparse.ArgumentParser(description="Make, but Sane")
     parser.add_argument('--version', action='version',
-            version=f'Sane 4.1')
+            version=f'Sane 4.2')
     parser.add_argument('--verbose', metavar='level', type=int, default=0, 
         help="Level of verbosity in logs. "
          f"{_VerboseLevel.NONE} is not verbose, "
@@ -323,6 +323,10 @@ def sane_run(default=None):
                             f"'{default}' does not exist as a recipe.")
                     exit(1)
                 recipe = default
+    else:
+        if recipe not in _recipes:
+            _error(f"Given recipe {recipe} does not exist.")
+            exit(1)
 
     _check_recipe_deps()
     _check_cyclic(recipe)
