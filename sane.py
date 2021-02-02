@@ -2,11 +2,6 @@ import os
 import argparse
 from inspect import getframeinfo, stack
 
-#### Version ####
-file_dir = os.path.dirname(os.path.realpath(__file__))
-with open(f"{file_dir}/VERSION", 'r') as versionfile:
-    VERSION = versionfile.read()
-
 #### Reporting ####
 
 class _AnsiColor:
@@ -288,7 +283,7 @@ def sane_run(default=None):
 
     parser = argparse.ArgumentParser(description="Make, but Sane")
     parser.add_argument('--version', action='version',
-            version=f'Sane {VERSION}')
+            version=f'Sane 4.1')
     parser.add_argument('--verbose', metavar='level', type=int, default=0, 
         help="Level of verbosity in logs. "
          f"{_VerboseLevel.NONE} is not verbose, "
