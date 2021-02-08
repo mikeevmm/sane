@@ -57,4 +57,8 @@ setuptools.setup(
 def release():
     sp.run("twine upload dist/*", shell=True)
 
+@recipe()
+def test():
+    sp.run("python -m unittest", shell=True)
+
 sane_run()
