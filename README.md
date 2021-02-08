@@ -89,7 +89,8 @@ sane_run(link)
     file_deps=[...],
     target_files=[...],
     recipe_deps=[...],
-    hook_deps=[...])
+    hook_deps=[...],
+    info="...")
 ```
 
 `name` - The name of the recipe (str). If none is given, the name is inferred
@@ -108,6 +109,8 @@ running this recipe, these are checked. If any is ran, this recipe is ran.
 `hook_deps` - The hook dependencies of this recipe ([str]); before running this
 recipe, all recipes with any of these hooks are checked. If any is ran, this
 recipe is ran.
+
+`info` - Text to show when the recipes are listed.
 
 ## License
 

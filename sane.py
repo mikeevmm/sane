@@ -43,19 +43,20 @@ _file_dependencies = {}
 _recipe_dependencies = {}
 _hook_dependencies = {}
 _target_files = {}
+_info = {}
 
 #### Recipe Decorator ####
 
-def recipe(*args, name=None, hooks=[], file_deps=[], recipe_deps=[], hook_deps=[], target_files=[]):
+def recipe(*args, name=None, hooks=[], file_deps=[], recipe_deps=[], hook_deps=[], target_files=[], info=None):
     if len(args) > 0:
         caller = getframeinfo(stack()[-1][0])
-        info = f"{caller.filename}: {caller.lineno}"
+        call_info = f"{caller.filename}: {caller.lineno}"
         _warn("Got unexpected arguments in recipe decorator at\n"
-                f"          {info}\n"
+                f"          {call_info}\n"
                 "       Are you missing a ()?")
 
     def recipe_fn(fn):
-        nonlocal name, hooks, file_deps, recipe_deps, hook_deps, target_files
+        nonlocal name, hooks, file_deps, recipe_deps, hook_deps, target_files, info
 
         _log(f"Registering recipe {fn}", _VerboseLevel.VERY_VERBOSE)
 
@@ -78,9 +79,11 @@ def recipe(*args, name=None, hooks=[], file_deps=[], recipe_deps=[], hook_deps=[
                 _error("Consider giving the recipe a unique name, with")
                 _error("        @recipe(name='...', ...)")
             exit(1)
-        _recipes[name] = fn
 
         # Type checking
+        if type(name) is not str:
+            _error(f"`name` for recipe '{fn}' is not string")
+            exit(1)
         if type(hooks) not in (list, tuple):
             _error(f"`hooks` for recipe '{name}' is not list or tuple")
             exit(1)
@@ -96,7 +99,16 @@ def recipe(*args, name=None, hooks=[], file_deps=[], recipe_deps=[], hook_deps=[
         if type(target_files) not in (list, tuple):
             _error(f"`target_files` for recipe '{name}' is not list or tuple")
             exit(1)
-        
+        if info is not None and type(info) is not str:
+            _error(f"`info` for recipe '{name}' is not string")
+            exit(1)
+
+        ## Save recipe by name, and information
+        _recipes[name] = fn
+
+        if info is not None:
+            _info[name] = info
+
         ## Register the function's dependencies
         # Note that the dependence recipes might not yet be registered,
         # and that we tolerate dependencies on files that do not exist.
@@ -287,7 +299,7 @@ def sane_run(default=None):
 
     parser = argparse.ArgumentParser(description="Make, but Sane")
     parser.add_argument('--version', action='version',
-            version=f'Sane 4.3')
+            version=f'Sane 5.0')
     parser.add_argument('--verbose', metavar='level', type=int, default=0, 
         help="Level of verbosity in logs. "
          f"{_VerboseLevel.NONE} is not verbose, "
@@ -297,8 +309,20 @@ def sane_run(default=None):
     parser.add_argument("--force", action="store_true",
         help="Ignore the times of file dependencies when deciding "
          "what recipes to run (i.e., run all).")
+    parser.add_argument("--list", action="store_true", default=False,
+        help="List the defined recipes.")
 
     args = parser.parse_args()
+
+    if args.list:
+        for recipe in _recipes:
+            print(f" -- {recipe}")
+            if recipe in _info:
+                print(f"  {_info[recipe]}")
+            else:
+                print(f"  [no information given]")
+        exit(0)
+
     recipe = args.recipe
     _verbose = args.verbose
     

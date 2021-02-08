@@ -4,19 +4,15 @@ from sane import *
 import setuptools
 
 
-VERSION = "4.3"
+VERSION = "5.0"
 RM = "rm -r"
 
 with open('README.md', 'r') as readme:
     readme = readme.read()
 
-@recipe()
+@recipe(info="Delete everything that build produces.")
 def clean():
     sp.run(f"{RM} build/ dist/ sane_build.egg-info", shell=True)
-
-def read_version():
-    major, minor = VERSION.split('.')
-    return (int(major), int(minor))
 
 @recipe(
         target_files=[
@@ -25,7 +21,8 @@ def read_version():
             "sane_build.egg-info"],
         file_deps=[
             "sane.py",
-            *glob("tests/*")])
+            *glob("tests/*")],
+        info="Build the PyPi distributable with setuptools.")
 def build():
     # Build
     with open('setup.py', 'w') as setup:
@@ -53,11 +50,13 @@ setuptools.setup(
 )""")
     sp.run("python3 setup.py sdist bdist_wheel", shell=True)
 
-@recipe(recipe_deps=[clean, build])
+@recipe(
+        recipe_deps=[clean, build],
+        info="Upload the built package to PyPi.")
 def release():
     sp.run("twine upload dist/*", shell=True)
 
-@recipe()
+@recipe(info="Run the unit tests in tests/ with unittest module.")
 def test():
     sp.run("python -m unittest", shell=True)
 
