@@ -255,6 +255,8 @@ def _run_recipe(recipe, force=False):
             modification_time = os.stat(file_dep).st_mtime
             if dep_newest is None or modification_time > dep_newest:
                 dep_newest = modification_time
+        _log(f"Newest dependency from {dep_newest}",
+                _VerboseLevel.VERY_VERBOSE)
 
         target_oldest = None
         for target in _target_files.get(recipe, []):
@@ -264,6 +266,8 @@ def _run_recipe(recipe, force=False):
             modification_time = os.stat(target).st_mtime
             if target_oldest is None or modification_time < target_oldest:
                 target_oldest = modification_time
+        _log(f"Oldest target from {target_oldest}",
+                _VerboseLevel.VERY_VERBOSE)
 
         if dep_newest is None \
                 or target_oldest is None \
