@@ -4,7 +4,7 @@ from sane import *
 import setuptools
 
 
-VERSION = "4.2"
+VERSION = "4.3"
 RM = "rm -r"
 
 with open('README.md', 'r') as readme:

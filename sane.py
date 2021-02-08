@@ -287,7 +287,7 @@ def sane_run(default=None):
 
     parser = argparse.ArgumentParser(description="Make, but Sane")
     parser.add_argument('--version', action='version',
-            version=f'Sane 4.2')
+            version=f'Sane 4.3')
     parser.add_argument('--verbose', metavar='level', type=int, default=0, 
         help="Level of verbosity in logs. "
          f"{_VerboseLevel.NONE} is not verbose, "
