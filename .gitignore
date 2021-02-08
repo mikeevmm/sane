@@ -1,0 +1,15 @@
+.*
+!.gitignore
+**/__pycache__/
+*.egg
+*.egg-info
+dist
+build
+eggs
+parts
+bin
+var
+sdist
+develop-eggs
+setup.py
+.installed.cfg
