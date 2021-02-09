@@ -1,7 +1,7 @@
+import setuptools
 import subprocess as sp
 from glob import glob
 from sane import *
-import setuptools
 
 
 VERSION = "5.0"
