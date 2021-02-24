@@ -112,6 +112,16 @@ recipe is ran.
 
 `info` - Text to show when the recipes are listed.
 
+## But I Like Just Typing `make`!
+
+Me too. I recommend the following alias (which you can put in `~/.bash_aliases` if you are using bash):
+
+```bash
+alias sane="python3 make.py"
+```
+
+Then, going into a directory which has a `make.py` and typing `sane` will run the default recipe.
+
 ## License
 
 This tool is licensed under an MIT license.
