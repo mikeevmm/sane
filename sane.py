@@ -122,8 +122,8 @@ class _Sane:
                 return False
             elif self.type == _Sane.Node.RECIPE:
                 conds = self.meta['conditions']
-                return ((len(self.connections) == 0) and
-                        (len(conds) == 0 or any(x() for x in conds)))
+                return (((len(self.connections) == 0) and len(conds) == 0) or
+                        any(x() for x in conds))
             else:
                 raise ValueError(f'Unknown node type \'{self.type}\'.')
 
@@ -174,7 +174,7 @@ class _Sane:
             else:
                 print(_Sane.indent('[no information given]', 3))
 
-    def report_unknown(self, unknown_recipe, from_, traceback):
+    def report_unknown(self, from_, unknown_recipe, traceback):
         error_message = (f'Recipe \'{from_}\' depends on an undefined '
                          f'recipe \'{unknown_recipe}\':\n'
                          f'{traceback}')
@@ -531,12 +531,22 @@ class _Sane:
             else:
                 raise ValueError(f'Unknown child type \'{child_type}\'.')
 
+            # Catch unknown recipe
             if not child_exists:
-                _, name = _Sane.split_unique_name(unique_name)
                 backtrack_names.append(child_unique_name)
                 traceback = ' > '.join(
                     _Sane.human_format_unique_name(x) for x in backtrack_names)
-                self.report_unknown(child_name, name, traceback)
+                self.report_unknown(root_name, child_name, traceback)
+
+            # Test if cyclic dependency
+            i = bisect.bisect_left(backtrack_names, child_unique_name)
+            cyclic = (i < len(backtrack_names) and 
+                     backtrack_names[i] == child_unique_name)
+            if cyclic:
+                backtrack_names.append(child_unique_name)
+                traceback = ' > '.join(_Sane.human_format_unique_name(x) 
+                                       for x in backtrack_names)
+                self.report_cyclic(root_name, traceback)
 
             # When we return to this point in the stack, explore the next child
             backtrack_child_idx.append(child_idx + 1)
