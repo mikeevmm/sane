@@ -2,7 +2,7 @@ import setuptools
 import subprocess as sp
 from glob import glob
 from sane import *
-from sane import _Sane
+from sane import _Sane, _Logging
 
 VERSION = _Sane.VERSION
 RM = "rm -r"
@@ -59,8 +59,20 @@ setuptools.setup(
 def release():
     sp.run("twine upload dist/*", shell=True)
 
-@recipe(info="Run the unit tests in tests/ with unittest module.")
+@recipe(info="Run the unit tests in tests/")
 def test():
-    sp.run("python -m unittest", shell=True)
+    for test in glob('tests/test_*.py'):
+        print(f'Output of {test}'.ljust(50, '-'))
+        out = sp.run(f'python {test}', shell=True)
+        print('End of output'.ljust(50, '-'))
+        if out.returncode != 0:
+            _Logging.warn(f'{test} failed!')
+
+@recipe(
+        recipe_deps=[build],
+        info="Build and install the current source.")
+def install():
+    sp.run("pip install .", shell=True)
+
 
 sane_run()
