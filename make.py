@@ -2,9 +2,9 @@ import setuptools
 import subprocess as sp
 from glob import glob
 from sane import *
+from sane import _Sane
 
-
-VERSION = "5.0"
+VERSION = _Sane.VERSION
 RM = "rm -r"
 
 with open('README.md', 'r') as readme:
@@ -15,14 +15,17 @@ def clean():
     sp.run(f"{RM} build/ dist/ sane_build.egg-info", shell=True)
 
 @recipe(
-        target_files=[
-            *glob("build/*"),
-            *glob("dist/*"),
-            "sane_build.egg-info"],
-        file_deps=[
-            "sane.py",
-            *glob("tests/*")],
-        info="Build the PyPi distributable with setuptools.")
+    conditions=[
+        sane_file_condition(
+            target_files=[
+                *glob("build/*"),
+                *glob("dist/*"),
+                "sane_build.egg-info"],
+            file_deps=[
+                "sane.py",
+                *glob("tests/*")])
+    ],
+    info="Build the PyPi distributable with setuptools.")
 def build():
     # Build
     with open('setup.py', 'w') as setup:
