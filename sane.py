@@ -620,6 +620,14 @@ def recipe(*args, name=None, hooks=[], recipe_deps=[],
 
 def sane_file_condition(file_deps, target_files):
     frame = inspect.stack(context=3)[-1]
+    if type(file_deps) not in (tuple, list):
+        _stateful.error('`file_deps` is expected to be tuple or list, '
+                        f'got {type(file_deps)} instead.\n'
+                        f'At {_Sane.trace(frame)}')
+    if type(target_files) not in (tuple, list):
+        _stateful.error('`target_files` is expected to be tuple or list, '
+                        f'got {type(target_files)} instead.\n'
+                        f'At {_Sane.trace(frame)}')
     if len(file_deps) == 0:
         _stateful.error('File condition without `file_deps` is ambiguous.\n'
                         'Consider writing an explicit condition.\n'
