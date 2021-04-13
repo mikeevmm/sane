@@ -6,7 +6,7 @@ import difflib
 
 
 class _Sane:
-    VERSION = '7.0'
+    VERSION = '6.0'
 
     ### State ###
 
@@ -710,11 +710,3 @@ if __name__ == '__main__':
     _stateful.log(f'Sane v{_Sane.VERSION}, by Miguel Murça.\n'
                   'Sane should be imported from other files, not ran directly.\n'
                   'Refer to the README for more information.')
-
-
-@recipe(conditions=[sane_file_condition(file_deps=['x'], target_files=['y'])])
-def aa():
-    pass
-
-
-sane_run(aa)
