@@ -628,7 +628,7 @@ def recipe(*args, name=None, hooks=[], recipe_deps=[],
 
 ### Conditions ###
 
-def sane_file_condition(file_deps, target_files):
+def sane_file_dep(file_deps, target_files):
     frame = inspect.stack(context=3)[-1]
     if type(file_deps) not in (tuple, list):
         _stateful.error('`file_deps` is expected to be tuple or list, '
