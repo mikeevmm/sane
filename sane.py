@@ -283,7 +283,7 @@ class _Sane:
                 sample_code = (
                         self.bold(
                             'conditions=[ sane_file_condition('
-                            'file_deps=[...], target_files=[...]) ]'))
+                            'sources=[...], targets=[...]) ]'))
                 self.warn(f'In recipe \'{name}\':\n'
                           '`file_deps` and `target_files` are deprecated '
                           'arguments. \n'
@@ -294,8 +294,8 @@ class _Sane:
                           'but may be ignored or fail in the future.')
                 conditions.append(
                     sane_file_condition(
-                        file_deps=kwargs.get('file_deps', []),
-                        target_files=kwargs.get('target_files', [])))
+                        sources=kwargs.get('file_deps', []),
+                        targets=kwargs.get('target_files', [])))
                 if file_deps_present:
                     del kwargs['file_deps']
                 if target_files_present:
@@ -628,36 +628,36 @@ def recipe(*args, name=None, hooks=[], recipe_deps=[],
 
 ### Conditions ###
 
-def sane_file_dep(file_deps, target_files):
+def sane_file_condition(sources, targets):
     frame = inspect.stack(context=3)[-1]
-    if type(file_deps) not in (tuple, list):
-        _stateful.error('`file_deps` is expected to be tuple or list, '
-                        f'got {type(file_deps)} instead.\n'
+    if type(sources) not in (tuple, list):
+        _stateful.error('`sources` is expected to be tuple or list, '
+                        f'got {type(sources)} instead.\n'
                         f'At {_Sane.trace(frame)}')
-    if type(target_files) not in (tuple, list):
-        _stateful.error('`target_files` is expected to be tuple or list, '
-                        f'got {type(target_files)} instead.\n'
+    if type(targets) not in (tuple, list):
+        _stateful.error('`targets` is expected to be tuple or list, '
+                        f'got {type(targets)} instead.\n'
                         f'At {_Sane.trace(frame)}')
-    if len(file_deps) == 0:
-        _stateful.error('File condition without `file_deps` is ambiguous.\n'
+    if len(sources) == 0:
+        _stateful.error('File condition without `sources` is ambiguous.\n'
                         'Consider writing an explicit condition.\n'
                         f'At {_Sane.trace(frame)}')
-    if len(target_files) == 0:
-        _stateful.error('File condition without `target_files` is ambiguous.\n'
+    if len(targets) == 0:
+        _stateful.error('File condition without `targets` is ambiguous.\n'
                         'Consider writing an explicit condition.\n'
                         f'At {_Sane.trace(frame)}')
     del frame
 
-    file_deps = [
-        os.path.abspath(os.path.expanduser(path)) for path in file_deps]
-    target_files = [
-        os.path.abspath(os.path.expanduser(path)) for path in target_files]
+    sources = [
+        os.path.abspath(os.path.expanduser(path)) for path in sources]
+    targets = [
+        os.path.abspath(os.path.expanduser(path)) for path in targets]
 
     def condition():
-        # The oldest file in `target_files` cannot be older than newest file
-        # in `file_deps`.
+        # The oldest file in `targets` cannot be older than newest file
+        # in `sources`.
         oldest = None
-        for target_file in target_files:
+        for target_file in targets:
             # If a target file does not exist, assume it should be created
             if not os.path.exists(target_file):
                 return True
@@ -666,7 +666,7 @@ def sane_file_dep(file_deps, target_files):
             if oldest is None or epoch < oldest:
                 oldest = epoch
         newest = None
-        for file_dep in file_deps:
+        for file_dep in sources:
             # Ignore dependencies that do not exist
             if not os.path.exists(file_dep):
                 _stateful.warn(f'File dependency \'{file_dep}\' does not exist '
