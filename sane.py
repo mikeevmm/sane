@@ -459,7 +459,7 @@ class _Sane:
         visited = []
         backtrack_names = [root_unique_name]
         backtrack_child_idx = [0]
-        backtrack_active = [root_node.is_always_active(), False]
+        backtrack_active = [root_node.is_always_active() or force, False]
         depth = 0
         ord_ = 0
         while len(backtrack_names) > 0:
@@ -540,7 +540,7 @@ class _Sane:
                 backtrack_names.append(child_unique_name)
 
                 child_node = self.graph[child_unique_name]
-                child_active = child_node.is_always_active()
+                child_active = (child_node.is_always_active() or force)
                 backtrack_active.extend((child_active, False))
 
         # Sort the active recipes by depth, and then by order in which they were
@@ -565,12 +565,23 @@ class _Sane:
 
 _stateful = _Sane()
 
+### Optionally Expose Logging Tools ###
+# For consistency, this class is never to be inside this file,
+# and logging should be done via `_stateful`.
+
+
+class _Logging:
+    def log(message): return _stateful.log(message)
+    def warn(message): return _stateful.warn(message)
+    def error(message): return _stateful.error(message)
+
 ### Recipe Tag ###
 
 
 def recipe(*args, name=None, hooks=[], recipe_deps=[],
            hook_deps=[], conditions=[], info=None, **kwargs):
     frame = inspect.stack(context=3)[-1]
+    # `frame` is disposed of once used
 
     def recipe_fn(fn):
         _stateful.register_decorator_call(*args, frame=frame, name=name,
@@ -583,14 +594,47 @@ def recipe(*args, name=None, hooks=[], recipe_deps=[],
 
 ### Conditions ###
 
-def sane_file_condition(file_deps=[], target_files=[]):
+def sane_file_condition(file_deps, target_files):
+    frame = inspect.stack(context=3)[-1]
+    if len(file_deps) == 0:
+        _stateful.error('File condition without `file_deps` is ambiguous.\n'
+                        'Consider writing an explicit condition.\n'
+                        f'At {_Sane.trace(frame)}')
+    if len(target_files) == 0:
+        _stateful.error('File condition without `target_files` is ambiguous.\n'
+                        'Consider writing an explicit condition.\n'
+                        f'At {_Sane.trace(frame)}')
+    del frame
+
     file_deps = [
         os.path.abspath(os.path.expanduser(path)) for path in file_deps]
     target_files = [
         os.path.abspath(os.path.expanduser(path)) for path in target_files]
 
     def condition():
-        return False
+        # The oldest file in `target_files` cannot be older than newest file
+        # in `file_deps`.
+        oldest = None
+        for target_file in target_files:
+            # If a target file does not exist, assume it should be created
+            if not os.path.exists(target_file):
+                return True
+            # Otherwise check the time
+            epoch = os.stat(target_file).st_mtime
+            if oldest is None or epoch < oldest:
+                oldest = epoch
+        newest = None
+        for file_dep in file_deps:
+            # Ignore dependencies that do not exist
+            if not os.path.exists(file_dep):
+                _stateful.warn(f'File dependency \'{file_dep}\' does not exist '
+                               'and will be ignored.')
+                continue
+            epoch = os.stat(file_dep).st_mtime
+            if newest is None or epoch > newest:
+                newest = epoch
+
+        return (oldest < newest)
     return condition
 
 
@@ -666,3 +710,11 @@ if __name__ == '__main__':
     _stateful.log(f'Sane v{_Sane.VERSION}, by Miguel Murça.\n'
                   'Sane should be imported from other files, not ran directly.\n'
                   'Refer to the README for more information.')
+
+
+@recipe(conditions=[sane_file_condition(file_deps=['x'], target_files=['y'])])
+def aa():
+    pass
+
+
+sane_run(aa)
