@@ -54,7 +54,8 @@ class _Sane:
         line_indicator = ('>  ' if i == frame.index else '|  '
                           for i in range(len(frame.code_context)))
         line_ctx_str = ''.join(f'{indicator}{line}'
-                               for line, indicator in zip(frame.code_context, line_indicator))
+                               for line, indicator in 
+                               zip(frame.code_context, line_indicator))
         return (f'{line_call_str}\n'
                 f'{line_ctx_str}')
 
@@ -70,8 +71,8 @@ class _Sane:
         # Suppress the plate spacing of the first line
         message = message[len(_Sane.LOG_PLATE):]
         if self.use_ansi:
-            print(
-                f'{_Sane.AnsiColor.OKBLUE}{_Sane.LOG_PLATE}{message}{_Sane.AnsiColor.ENDC}')
+            print(f'{_Sane.AnsiColor.OKBLUE}{_Sane.LOG_PLATE}'
+                  f'{message}{_Sane.AnsiColor.ENDC}')
         else:
             print(f'{_Sane.LOG_PLATE}{message}')
 
@@ -82,8 +83,8 @@ class _Sane:
         # Suppress the plate spacing of the first line
         message = message[len(_Sane.WARN_PLATE):]
         if self.use_ansi:
-            print(
-                f'{_Sane.AnsiColor.WARNING}{_Sane.WARN_PLATE}{message}{_Sane.AnsiColor.ENDC}')
+            print(f'{_Sane.AnsiColor.WARNING}{_Sane.WARN_PLATE}'
+                  f'{message}{_Sane.AnsiColor.ENDC}')
         else:
             print(f'{_Sane.WARN_PLATE}{message}')
 
@@ -92,8 +93,8 @@ class _Sane:
         # Suppress the plate spacing of the first line
         message = message[len(_Sane.ERROR_PLATE):]
         if self.use_ansi:
-            print(
-                f'{_Sane.AnsiColor.FAIL}{_Sane.ERROR_PLATE}{message}{_Sane.AnsiColor.ENDC}')
+            print(f'{_Sane.AnsiColor.FAIL}{_Sane.ERROR_PLATE}'
+                  f'{message}{_Sane.AnsiColor.ENDC}')
         else:
             print(f'{_Sane.ERROR_PLATE}{message}')
         exit(1)
@@ -200,7 +201,8 @@ class _Sane:
 
     ### Registration ###
 
-    def register_recipe(self, fn, name, hooks, recipe_deps, hook_deps, conditions, info):
+    def register_recipe(self, fn, name, hooks, recipe_deps,
+                        hook_deps, conditions, info):
         for hook in hooks:
             hook_node = \
                 self.graph.setdefault(
@@ -278,13 +280,17 @@ class _Sane:
             file_deps_present = ('file_deps' in kwargs)
             target_files_present = ('target_files' in kwargs)
             if file_deps_present or target_files_present:
-                sample_code = self.bold('conditions=[ sane_file_condition('
-                                        'file_deps=[...], target_files=[...]) ]')
-                self.warn('`file_deps` and `target_files` are deprecated '
+                sample_code = (
+                        self.bold(
+                            'conditions=[ sane_file_condition('
+                            'file_deps=[...], target_files=[...]) ]'))
+                self.warn(f'In recipe \'{name}\':\n'
+                          '`file_deps` and `target_files` are deprecated '
                           'arguments. \n'
                           f'Use\n'
                           f' {sample_code}\n'
-                          'instead.\nThis condition has been automatically inserted, '
+                          'instead.\n'
+                          'This condition has been automatically inserted, '
                           'but may be ignored or fail in the future.')
                 conditions.append(
                     sane_file_condition(
@@ -297,7 +303,8 @@ class _Sane:
 
             # - Unknown keyword arguments
             if len(kwargs) > 0:
-                self.error('Got unexpected keyword arguments in recipe decorator at\n'
+                self.error('Got unexpected keyword arguments in recipe '
+                           'decorator at\n'
                            f'{_Sane.trace(frame)}\n'
                            'Unrecognized keyword arguments are: '
                            f'{", ".join(kwargs)}.')
@@ -322,8 +329,9 @@ class _Sane:
             if self.recipe_exists(name):
                 error_msg = 'Duplicate recipe of name \'{name}\'.'
                 if name_inferred:
-                    error_msg += ('The name was inferred from the function name;\n'
-                                  'consider giving the recipe a unique name, with\n')
+                    error_msg += (
+                            'The name was inferred from the function name;\n'
+                            'consider giving the recipe a unique name, with\n')
                     error_msg += _Sane.indent('@recipe(name=\'...\', ...)', 3)
                 self.error(error_msg)
 
@@ -332,17 +340,24 @@ class _Sane:
                 self.error(f'`name` for recipe \'{name}\' is not string.\n'
                            f'At {_Sane.trace(frame)}')
             if type(hooks) not in (list, tuple):
-                self.error(f'`hooks` for recipe \'{name}\' is not list or tuple.\n'
-                           f'At {_Sane.trace(frame)}')
+                self.error(
+                        f'`hooks` for recipe \'{name}\' is not list or tuple.\n'
+                        f'At {_Sane.trace(frame)}')
             if type(recipe_deps) not in (list, tuple):
-                self.error(f'`recipe_deps` for recipe \'{name}\' is not list or tuple.\n'
-                           f'At {_Sane.trace(frame)}')
+                self.error(
+                        f'`recipe_deps` for recipe \'{name}\' is not list or '
+                        'tuple.\n'
+                        f'At {_Sane.trace(frame)}')
             if type(hook_deps) not in (list, tuple):
-                self.error(f'`hook_deps` for recipe \'{name}\' is not list or tuple.\n'
-                           f'At {_Sane.trace(frame)}')
+                self.error(
+                        f'`hook_deps` for recipe \'{name}\' is not list or '
+                        'tuple.\n'
+                        f'At {_Sane.trace(frame)}')
             if type(conditions) not in (list, tuple):
-                self.error(f'`conditions` for recipe \'{name}\' is not list or tuple.\n'
-                           f'At {_Sane.trace(frame)}')
+                self.error(
+                        f'`conditions` for recipe \'{name}\' is not list or '
+                        'tuple.\n'
+                        f'At {_Sane.trace(frame)}')
             if info is not None and type(info) is not str:
                 self.error(f'`info` for recipe \'{name}\' is not string.\n'
                            f'At {_Sane.trace(frame)}')
@@ -352,12 +367,14 @@ class _Sane:
             for i, recipe_dep in enumerate(recipe_deps):
                 if type(recipe_dep) is not str:
                     if not hasattr(recipe_dep, '__name__'):
-                        self.error(f'Invalid object \'{recipe_dep}\' under recipe '
-                                   f'dependencies of recipe named \'{name}\'.\n'
-                                   f'At {_Sane.trace(frame)}')
+                        self.error(
+                                f'Invalid object \'{recipe_dep}\' under recipe '
+                                f'dependencies of recipe named \'{name}\'.\n'
+                                f'At {_Sane.trace(frame)}')
                     recipe_deps[i] = recipe_dep.__name__
             self.log(
-                f'Recipe dependencies of recipe \'{name}\':\n{chr(10).join(recipe_deps)}',
+                f'Recipe dependencies of recipe \'{name}\':\n'
+                f'{chr(10).join(recipe_deps)}',
                 _Sane.VerboseLevel.VERY_VERBOSE)
 
             # - Hook dependency
@@ -373,17 +390,21 @@ class _Sane:
             # - Condition dependency
             for condition in conditions:
                 if not hasattr(condition, '__call__'):
-                    self.error(f'Conditions must be callables, but got \'{condition}\' '
-                               f'as a condition of recipe \'{name}\'.\n'
-                               f'At {_Sane.trace(frame)}')
+                    self.error(
+                            'Conditions must be callables, but got '
+                            f'\'{condition}\' as a condition of recipe '
+                            f'\'{name}\'.\n'
+                            f'At {_Sane.trace(frame)}')
                 cond_signature = inspect.signature(condition)
                 if any(arg.default == inspect.Parameter.empty
                         for arg in cond_signature.parameters):
-                    self.error(f'Condition \'{condition}\' of recipe \'{name}\' '
-                               'takes required parameters. This is not allowed; '
-                               'conditions are called without arguments.')
+                    self.error(
+                            f'Condition \'{condition}\' of recipe \'{name}\' '
+                            'takes required parameters. This is not allowed; '
+                            'conditions are called without arguments.')
             self.log(
-                f'Conditions of recipe \'{name}\':\n{chr(10).join(str(x) for x in conditions)}',
+                f'Conditions of recipe \'{name}\':\n'
+                f'{chr(10).join(str(x) for x in conditions)}',
                 _Sane.VerboseLevel.VERY_VERBOSE)
 
             # Register recipe
@@ -549,8 +570,10 @@ class _Sane:
                           key=active_ordering.__getitem__)
         active_in_order = map(lambda i: active[i], reversed(sort_key))
 
-        self.log(f'Finished building and sorting dependency tree of \'{root_name}\'.\n'
-                 'Launching recipes.', _Sane.VerboseLevel.VERY_VERBOSE)
+        self.log('Finished building and sorting dependency tree of '
+                 f'\'{root_name}\'.\n'
+                 'Launching recipes.',
+                 _Sane.VerboseLevel.VERY_VERBOSE)
 
         # Finally, run the recipes in order
         # Note that some of the elements in `active` will be hooks.
@@ -586,7 +609,8 @@ def recipe(*args, name=None, hooks=[], recipe_deps=[],
     def recipe_fn(fn):
         _stateful.register_decorator_call(*args, frame=frame, name=name,
                                           hooks=hooks, recipe_deps=recipe_deps,
-                                          hook_deps=hook_deps, conditions=conditions,
+                                          hook_deps=hook_deps,
+                                          conditions=conditions,
                                           info=info, fn=fn, **kwargs)
         return fn
     return recipe_fn
@@ -681,14 +705,16 @@ def sane_run(default=None):
         else:
             if type(default) is not str:
                 if not hasattr(default, '__name__'):
-                    _stateful.error('Given default recipe not a string, and '
-                                    'the given object has no `__name__` attribute.\n'
-                                    f'Default recipe given is \'{default}\'.')
+                    _stateful.error(
+                            'Given default recipe not a string, and '
+                            'the given object has no `__name__` attribute.\n'
+                            f'Default recipe given is \'{default}\'.')
 
                 if not _stateful.recipe_exists(default.__name__):
-                    _stateful.error('Given default recipe not a string, and '
-                                    f'inferred name \'{default.__name__}\' is not '
-                                    'defined as a recipe.')
+                    _stateful.error(
+                            'Given default recipe not a string, and '
+                            f'inferred name \'{default.__name__}\' is not '
+                            'defined as a recipe.')
 
                 recipe = default.__name__
             else:
@@ -702,11 +728,13 @@ def sane_run(default=None):
                 f'Given recipe \'{recipe}\' is not defined as a recipe.')
 
     _stateful.log(
-        f'Launching graph of recipe \'{recipe}\'.', _Sane.VerboseLevel.VERY_VERBOSE)
+        f'Launching graph of recipe \'{recipe}\'.',
+        _Sane.VerboseLevel.VERY_VERBOSE)
     _stateful.run_recipe_graph(recipe, args.force)
 
 
 if __name__ == '__main__':
     _stateful.log(f'Sane v{_Sane.VERSION}, by Miguel Murça.\n'
-                  'Sane should be imported from other files, not ran directly.\n'
+                  'Sane should be imported from other files, '
+                  'not ran directly.\n'
                   'Refer to the README for more information.')
