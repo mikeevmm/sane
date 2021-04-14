@@ -174,7 +174,7 @@ class _Sane:
             else:
                 print(_Sane.indent('[no information given]', 3))
 
-    def report_unknown(self, from_, unknown_recipe, traceback):
+    def report_unknown_recipe(self, from_, unknown_recipe, traceback):
         error_message = (f'Recipe \'{from_}\' depends on an undefined '
                          f'recipe \'{unknown_recipe}\':\n'
                          f'{traceback}')
@@ -532,11 +532,11 @@ class _Sane:
                 raise ValueError(f'Unknown child type \'{child_type}\'.')
 
             # Catch unknown recipe
-            if not child_exists:
+            if not child_exists and child_type == _Sane.Node.RECIPE:
                 backtrack_names.append(child_unique_name)
                 traceback = ' > '.join(
                     _Sane.human_format_unique_name(x) for x in backtrack_names)
-                self.report_unknown(root_name, child_name, traceback)
+                self.report_unknown_recipe(root_name, child_name, traceback)
 
             # Test if cyclic dependency
             i = bisect.bisect_left(backtrack_names, child_unique_name)
