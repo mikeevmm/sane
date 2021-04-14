@@ -11,23 +11,27 @@ RM = "rm -r"
 with open('README.md', 'r') as readme:
     readme = readme.read()
 
+new_sources = sane_file_condition(
+    targets=[
+        *glob("build/*"),
+        *glob("dist/*"),
+        "sane_build.egg-info"],
+    sources=[
+        "sane.py",
+        *glob("tests/*")])
+
+
 @recipe(info="Delete everything that build produces.")
 def clean():
     sp.run(f"{RM} build/ dist/ sane_build.egg-info", shell=True)
 
 @recipe(
-    conditions=[
-        sane_file_condition(
-            targets=[
-                *glob("build/*"),
-                *glob("dist/*"),
-                "sane_build.egg-info"],
-            sources=[
-                "sane.py",
-                *glob("tests/*")])
-    ],
+    conditions=[new_sources],
     info="Build the PyPi distributable with setuptools.")
 def build():
+    if new_sources():
+        clean()
+
     # Build
     with open('setup.py', 'w') as setup:
         setup.write(f"""\
