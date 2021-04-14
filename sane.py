@@ -3,6 +3,7 @@ import argparse
 import inspect
 import bisect
 import difflib
+import itertools
 
 
 class _Sane:
@@ -203,13 +204,22 @@ class _Sane:
 
     def register_recipe(self, fn, name, hooks, recipe_deps,
                         hook_deps, conditions, info):
-        for hook in hooks:
+        # If we do not register the hooks in hook_deps, it may happen that
+        # no recipe is ever registered with those hooks, leading to an
+        # "unknown dependency" error. This is counter intuitive (if we depend
+        # on a hook and no recipes are defined with that hook, we expect the
+        # dependency not to have any effect).
+        iterator = itertools.chain(
+                ((True, x) for x in hooks),
+                ((False, x) for x in hook_deps))
+        for connect, hook in iterator:
             hook_node = \
                 self.graph.setdefault(
                     _Sane.get_unique_name(hook, _Sane.Node.HOOK),
                     _Sane.Node(_Sane.Node.HOOK))
-            hook_node.connections.append(
-                _Sane.get_unique_name(name, _Sane.Node.RECIPE))
+            if connect:
+                hook_node.connections.append(
+                    _Sane.get_unique_name(name, _Sane.Node.RECIPE))
             i = bisect.bisect_left(self.hooks, hook)
             if not (i < len(self.hooks) and self.hooks[i] == hook):
                 self.hooks.insert(i, hook)
