@@ -17,11 +17,11 @@ def clean():
 @recipe(
     conditions=[
         sane_file_condition(
-            target_files=[
+            targets=[
                 *glob("build/*"),
                 *glob("dist/*"),
                 "sane_build.egg-info"],
-            file_deps=[
+            sources=[
                 "sane.py",
                 *glob("tests/*")])
     ],
