@@ -765,4 +765,5 @@ if __name__ == '__main__':
     _stateful.log(f'Sane v{_Sane.VERSION}, by Miguel Murça.\n'
                   'Sane should be imported from other files, '
                   'not ran directly.\n'
-                  'Refer to the README for more information.')
+                  'Refer to the [Github page] for more information.\n'
+                  'https://github.com/mikeevmm/sane')
