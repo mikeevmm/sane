@@ -2,7 +2,8 @@ import setuptools
 import subprocess as sp
 from glob import glob
 from sane import *
-from sane import _Sane, _Logging
+from sane import _Sane 
+from sane import _Logging as Log
 
 VERSION = _Sane.VERSION
 RM = "rm -r"
@@ -62,11 +63,14 @@ def release():
 @recipe(info="Run the unit tests in tests/")
 def test():
     for test in glob('tests/test_*.py'):
-        print(f'Output of {test}'.ljust(50, '-'))
-        out = sp.run(f'python {test}', shell=True)
-        print('End of output'.ljust(50, '-'))
+        out = sp.run(f'python {test}', shell=True, capture_output=True)
         if out.returncode != 0:
-            _Logging.warn(f'{test} failed!')
+            Log.warn(f'{test} failed!')
+            Log.warn('Stdout:')
+            Log.warn(out.stdout.decode('utf-8'))
+            Log.warn('Stderr:')
+            Log.warn(out.stderr.decode('utf-8'))
+    Log.log('All tests passed.')
 
 @recipe(
         recipe_deps=[build],
