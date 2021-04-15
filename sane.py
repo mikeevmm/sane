@@ -293,7 +293,7 @@ class _Sane:
             if file_deps_present or target_files_present:
                 sample_code = (
                         self.bold(
-                            'from sane import _Extra as Extra\n'
+                            'from sane import _Help as Help\n'
                             'conditions=[ Extra.file_condition('
                             'sources=[...], targets=[...]) ]'))
                 self.warn(f'In recipe \'{name}\':\n'
@@ -305,7 +305,7 @@ class _Sane:
                           'This condition has been automatically inserted, '
                           'but may be ignored or fail in the future.')
                 conditions.append(
-                    _Extra.file_condition(
+                    _Help.file_condition(
                         sources=kwargs.get('file_deps', []),
                         targets=kwargs.get('target_files', [])))
                 if file_deps_present:
@@ -615,7 +615,7 @@ _stateful = _Sane()
 
 ### Optionally Exposed Tools ###
 
-class _Extra:
+class _Help:
     # For consistency, thse logging functions are never used inside this file,
     # and logging should be done via `_stateful`.
     @staticmethod

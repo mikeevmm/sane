@@ -7,9 +7,9 @@ def deprecated():
 
 sane_run(deprecated)
 
-from sane import _Extra as Extra
+from sane import _Help as Help
 
-@recipe(conditions=[Extra.file_condition(sources=['x.y'], targets=['z.w'])])
+@recipe(conditions=[Help.file_condition(sources=['x.y'], targets=['z.w'])])
 def correct():
     pass
 
