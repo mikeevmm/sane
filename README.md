@@ -145,7 +145,7 @@ def my_recipe():
 
 **hook_deps:** `list` of `str`ing hooks that this recipe depends on. This means that the recipe implicitly depends on any recipe tagged with one of these hooks.
 
-**conditions:** `list` of callables with signature `() -> bool`. If any of these is `True`, the recipe is considered active (see [The Flow of Recipes](the-flow-of-recipes) for more information).
+**conditions:** `list` of callables with signature `() -> bool`. If any of these is `True`, the recipe is considered active (see [The Flow of Recipes](#the-flow-of-recipes) for more information).
 
 **info:** a description `str`ing to display when recipes are listed with `--list`.
 
