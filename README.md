@@ -2,6 +2,8 @@
 
 `sane` is a command runner made simple.
 
+![I typo a lot. Sorry about that.](demo.gif)
+
 ## What
 
 `sane` is:
