@@ -20,7 +20,17 @@
 
 ## Why
 
-At ~600 lines of code in a single file, `sane` is extremely portable, being made to be distributed alongside your code base. Its simple syntax and operation make it easy to understand and modify your recipe files. Everything is just Python, meaning neither you nor your users have to learn yet another domain specific language. It also means `sane` is cross-platform and has an extremely low adoption barrier. `sane` does not parse Python, or do otherwise "meta" operations, improving its future-proofness. You are free to keep state as you see fit, and can write `sane` recipe files that behave like `Makefiles`. `sane` aims to do only as much as reasonably documentable in a single README, and aims to have the minimum amount of gotchas, while preserving maximum flexibility.
+- More portable
+
+At ~600 lines of code in a single file, `sane` is extremely portable, being made to be distributed alongside your code base. Being pure Python makes it cross-platform and with an extremely low adoption barrier. `sane` does not parse Python, or do otherwise "meta" operations, improving its future-proofness. `sane` aims to do only as much as reasonably documentable in a single README, and aims to have the minimum amount of gotchas, while preserving maximum flexibility.
+
+- More readable
+
+Its simple syntax and operation make it easy to understand and modify your recipe files. Everything is just Python, meaning neither you nor your users have to learn yet another domain specific language. 
+
+- More flexible
+
+You are free to keep state as you see fit, and all correct Python is valid. `sane` can function as a build system or as a command runner.
 
 ## Example
 
