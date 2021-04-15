@@ -2,6 +2,8 @@
 
 `sane` is a command runner made simple.
 
+## What
+
 `sane` is:
 
 - A *single* *Python* file, providing
