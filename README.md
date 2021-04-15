@@ -145,6 +145,32 @@ def my_recipe():
 
 **info:** a description `str`ing to display when recipes are listed with `--list`.
 
+## `sane_run`
+
+```python
+sane_run(default=None, cli=True)
+```
+
+This function should be called at the end of a recipes file, which will
+trigger command-line arguments parsing, and run either the command-line
+provided recipe, or, if none is specified, the defined `default` recipe.
+(If neither are defined, an error is reported, and the program exits.)
+
+(There are exceptions to this: `--help`, `--list` and similars will simply output the request information and exit.)
+
+By default, `sane_run` runs in "CLI mode" (`cli=True`).
+However, `sane_run` can also be called in "programmatic mode" (`cli=False`).
+In this mode, command-line arguments will be ignored, and the `default`
+recipe will be ran (observing dependencies, like in CLI mode).
+This is useful if you wish to programmatically call upon a recipe (and its
+subtree).
+
+To see the available options and syntax when calling a recipes file (e.g., `make.py`), call
+
+```bash
+python make.py --help
+```
+
 ## Installation
 
 **It is recommended to just include sane.py in the same directory as your project.** You can do this easily with `curl`
