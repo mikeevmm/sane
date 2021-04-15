@@ -15,7 +15,7 @@ from contextlib import redirect_stdout
 
 # Fake --list in argv
 import sys
-sys.argv.insert(1, '--list')
+sys.argv.append('--list')
 
 f = io.StringIO()
 with redirect_stdout(f):
