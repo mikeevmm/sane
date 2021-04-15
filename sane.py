@@ -1,3 +1,13 @@
+"""Sane, Makefile for humans.
+
+Copyright 2021 Miguel Murça
+
+Permission is hereby granted, free of charge, to any person obtaining a copy of this software and associated documentation files (the "Software"), to deal in the Software without restriction, including without limitation the rights to use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies of the Software, and to permit persons to whom the Software is furnished to do so, subject to the following conditions:
+
+The above copyright notice and this permission notice shall be included in all copies or substantial portions of the Software.
+
+THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY, FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM, OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE SOFTWARE.
+"""
 import os
 import argparse
 import inspect
@@ -687,6 +697,32 @@ class _Help:
 
 def recipe(*args, name=None, hooks=[], recipe_deps=[],
            hook_deps=[], conditions=[], info=None, **kwargs):
+    """Decorate a function as a `sane` recipe.
+
+    Arguments:
+        name: The name ('str') of the recipe. If unspecified or `None`, it is 
+              inferred from the `__name__` attribute of the recipe function.
+              However, recipe names must be unique, so dynamically created
+              recipes (from, e.g., within a loop) typically require this
+              argument.
+
+        hooks: `list` of `str`ings defining hooks for this recipe.
+
+        recipe_deps: `list` of `str`ing names that this recipe depends on.
+                     If an element of the list is not a string, a `name` is
+                     inferred from the `__name__` attribute, but this may cause 
+                     an error if it does not match the given `name`.
+
+        hook_deps: `list` of `str`ing hooks that this recipe depends on. This 
+                   means that the recipe implicitly depends on any recipe tagged
+                   with one of these hooks.
+
+        conditions: `list` of callables with signature `() -> boolean`. If any
+                    of these is `True`, the recipe is considered active.
+
+        info: a description `str`ing to display when recipes are listed with
+              `--list`.
+    """
     frame = inspect.stack(context=3)[-1]
     # `frame` is disposed of once used
 
