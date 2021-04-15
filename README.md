@@ -221,7 +221,7 @@ The `sane` logging functions are exposed in `Help` as `log`, `warn`, `error`. Th
 I suggest defining the following alias
 
 ```bash
-alias sane='python3 make.py
+alias sane='python3 make.py'
 ```
 
 ## License
