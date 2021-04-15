@@ -177,6 +177,7 @@ Help.file_condition(sources=['...'],
 Returns a callable that is `True` if the newest file in `sources` is older than the oldest files in `targets`, or if any of the files in `targets` does not exist.
 
 **sources:** `list` of `str`ing path to files.
+
 **targets:** `list` of `str`ing path to files.
 
 ### Logging
