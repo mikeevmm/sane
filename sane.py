@@ -170,11 +170,16 @@ class _Sane:
             recipe_unique_name = _Sane.get_unique_name(
                 recipe_name, _Sane.Node.RECIPE)
             recipe_node = self.graph[recipe_unique_name]
-            print(f' -- {recipe_name}')
-            if recipe_node.meta.get('info', None) is not None:
-                print(_Sane.indent(recipe_node.meta['info'], 3))
+            if self.use_ansi:
+                print(self.bold(recipe_name))
+                indent = 1
             else:
-                print(_Sane.indent('[no information given]', 3))
+                print(f' -- {recipe_name}')
+                indent = 3
+            if recipe_node.meta.get('info', None) is not None:
+                print(_Sane.indent(recipe_node.meta['info'], indent))
+            else:
+                print(_Sane.indent('[no information given]', indent))
 
     def report_unknown(self, from_, unknown_recipe, traceback):
         error_message = (f'Recipe \'{from_}\' depends on an undefined '
