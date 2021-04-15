@@ -17,7 +17,7 @@ import itertools
 
 
 class _Sane:
-    VERSION = '6.0'
+    VERSION = '6.1'
 
     ### State ###
 
@@ -309,7 +309,7 @@ class _Sane:
                 sample_code = (
                         self.bold(
                             'from sane import _Help as Help\n'
-                            'conditions=[ Extra.file_condition('
+                            'conditions=[ Help.file_condition('
                             'sources=[...], targets=[...]) ]'))
                 self.warn(f'In recipe \'{name}\':\n'
                           '`file_deps` and `target_files` are deprecated '
