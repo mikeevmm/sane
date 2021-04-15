@@ -45,9 +45,9 @@ class _Sane:
         UNDERLINE = '\033[4m'
 
     class VerboseLevel:
-        NONE = 0
+        SILENT = 0
         VERBOSE = 1
-        VERY_VERBOSE = 2
+        DEBUG = 2
 
     INDENT_LEADER = '  '
     LOG_PLATE = '[LOG] '
@@ -76,7 +76,7 @@ class _Sane:
             return f'{_Sane.AnsiColor.BOLD}{message}{_Sane.AnsiColor.ENDBOLD}'
         return message
 
-    def log(self, message, min_level=VerboseLevel.NONE):
+    def log(self, message, min_level=VerboseLevel.SILENT):
         if self.verbose < min_level:
             return
         message = _Sane.indent(message, ' ' * len(_Sane.LOG_PLATE))
@@ -88,7 +88,7 @@ class _Sane:
         else:
             print(f'{_Sane.LOG_PLATE}{message}')
 
-    def warn(self, message, min_level=VerboseLevel.NONE):
+    def warn(self, message, min_level=VerboseLevel.SILENT):
         if self.verbose < min_level:
             return
         message = _Sane.indent(message, ' ' * len(_Sane.WARN_PLATE))
@@ -348,7 +348,7 @@ class _Sane:
                 name = fn.__name__
                 self.log(
                     f'Inferred name \'{name}\' for function \'{fn}\'.',
-                    _Sane.VerboseLevel.VERY_VERBOSE)
+                    _Sane.VerboseLevel.DEBUG)
             else:
                 name_inferred = False
 
@@ -402,7 +402,7 @@ class _Sane:
             self.log(
                 f'Recipe dependencies of recipe \'{name}\':\n'
                 f'{chr(10).join(recipe_deps)}',
-                _Sane.VerboseLevel.VERY_VERBOSE)
+                _Sane.VerboseLevel.DEBUG)
 
             # - Hook dependency
             for hook in hook_deps:
@@ -412,7 +412,7 @@ class _Sane:
                                f'At {_Sane.trace(frame)}')
             self.log(
                 f'Hooks of recipe \'{name}\':\n{chr(10).join(hook_deps)}',
-                _Sane.VerboseLevel.VERY_VERBOSE)
+                _Sane.VerboseLevel.DEBUG)
 
             # - Condition dependency
             for condition in conditions:
@@ -432,12 +432,12 @@ class _Sane:
             self.log(
                 f'Conditions of recipe \'{name}\':\n'
                 f'{chr(10).join(str(x) for x in conditions)}',
-                _Sane.VerboseLevel.VERY_VERBOSE)
+                _Sane.VerboseLevel.DEBUG)
 
             # Register recipe
             self.log(
                 f'Registring recipe \'{name}\' (-> \'{fn}\').',
-                _Sane.VerboseLevel.VERY_VERBOSE)
+                _Sane.VerboseLevel.DEBUG)
             self.register_recipe(fn, name, hooks, recipe_deps, hook_deps,
                                  conditions, info)
 
@@ -612,7 +612,7 @@ class _Sane:
         self.log('Finished building and sorting dependency tree of '
                  f'\'{root_name}\'.\n'
                  'Launching recipes.',
-                 _Sane.VerboseLevel.VERY_VERBOSE)
+                 _Sane.VerboseLevel.DEBUG)
 
         # Finally, run the recipes in order
         # Note that some of the elements in `active` will be hooks.
@@ -784,9 +784,8 @@ def sane_run(default=None, cli=True):
                             version=f'Sane {_Sane.VERSION}')
         parser.add_argument('--verbose', metavar='level', type=int, default=0,
                             help='Level of verbosity in logs. '
-                            f'{_Sane.VerboseLevel.NONE} is not verbose, '
-                            f'{_Sane.VerboseLevel.VERY_VERBOSE} is most '
-                            'verbose.')
+                            f'{_Sane.VerboseLevel.SILENT} is silent, '
+                            f'{_Sane.VerboseLevel.DEBUG} is most verbose.')
         parser.add_argument('recipe', nargs='?', default=None,
                             help='The recipe to run. If none is given, '
                             'the default recipe is ran.')
@@ -807,7 +806,7 @@ def sane_run(default=None, cli=True):
         _stateful.set_force(args.force)
 
         _stateful.log('Parsing registered `@recipe` decorations.',
-                      _Sane.VerboseLevel.VERY_VERBOSE)
+                      _Sane.VerboseLevel.DEBUG)
         _stateful.parse_decorator_calls()
 
         if args.list:
@@ -881,7 +880,7 @@ def sane_run(default=None, cli=True):
 
     _stateful.log(
         f'Launching graph of recipe \'{recipe}\'.',
-        _Sane.VerboseLevel.VERY_VERBOSE)
+        _Sane.VerboseLevel.DEBUG)
     _stateful.run_recipe_graph(recipe)
 
 
