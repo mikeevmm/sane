@@ -189,13 +189,15 @@ pip install sane-build
 
 ## Miscelaneous
 
+### `_Help`
+
 `sane` provides a few helper functions that are not included by default. These are contained in a `Help` class and can be imported with
 
 ```python
 from sane import _Help as Help
 ```
 
-### `Help.file_condition`
+#### `Help.file_condition`
 
 ```python
 Help.file_condition(sources=['...'],
@@ -208,9 +210,17 @@ Returns a callable that is `True` if the newest file in `sources` is older than 
 
 **targets:** `list` of `str`ing path to files.
 
-### Logging
+#### Logging
 
 The `sane` logging functions are exposed in `Help` as `log`, `warn`, `error`. These take a single string as a message, and the `error` function terminates the program with `exit(1)`.
+
+## Calling `python ...` is Gruesome
+
+I suggest defining the following alias
+
+```bash
+alias sane='python3 make.py
+```
 
 ## License
 
