@@ -642,6 +642,18 @@ class _Help:
 
     @staticmethod
     def file_condition(sources, targets):
+        """Build system-like condition.
+
+        Returns a callable that is `True` if the newest file in `sources` is 
+        older than the oldest files in `targets`, or if any of the files in 
+        `targets` does not exist.
+
+        Arguments:
+            sources: `list` of `str`ing path to files.
+            targets: `list` of `str`ing path to files.
+        Returns:
+            Function that takes no arguments and returns a `bool`ean.
+        """
         frame = inspect.stack(context=3)[-1]
         if type(sources) not in (tuple, list):
             _stateful.error('`sources` is expected to be tuple or list, '
