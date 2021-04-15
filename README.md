@@ -218,7 +218,7 @@ Returns a callable that is `True` if the newest file in `sources` is older than 
 
 The `sane` logging functions are exposed in `Help` as `log`, `warn`, `error`. These take a single string as a message, and the `error` function terminates the program with `exit(1)`.
 
-## Calling `python ...` is Gruesome
+### Calling `python ...` is Gruesome
 
 I suggest defining the following alias
 
