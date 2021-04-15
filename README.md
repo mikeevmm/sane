@@ -94,9 +94,11 @@ sane_run(run_exe)
 
 ## The Flow of Recipes
 
-`sane` uses **recipes** and **hooks**.
+`sane` uses **recipes**, **conditions** and **hooks**.
 
-**Recipe:** A python function, with dependencies (on either/both other recipes and hooks), hooks, and conditions (argument-less functions returning True or False).
+**Recipe:** A python function, with dependencies (on either/both other recipes and hooks), hooks, and conditions.
+
+**Conditions:** Argument-less functions returning True or False.
 
 **Hook:** A non-unique indentifier for a recipe. When a recipe depends on a hook, it depends on every recipe tagged with that hook.
 
