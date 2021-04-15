@@ -119,8 +119,8 @@ In concrete terms, this means that if
 
 then
 
-- If `B`'s conditions are satisfied, but `C`'s are not, `B` is called and then `A` is called
-- If `C`'s conditions are satisfied, `C`, `B`, `A` are called in that order
+- If any of `B`'s conditions is satisfied, but none of `C`'s are, `B` is called and then `A` is called
+- If any of `C`'s conditions is satisfied, `C`, `B`, `A` are called in that order
 - Otherwise, nothing is ran.
 
 ## The `@recipe` decorator
