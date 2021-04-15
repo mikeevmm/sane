@@ -77,6 +77,7 @@ def test():
 
 @recipe(
         recipe_deps=[build],
+        conditions=[lambda: True],
         info="Build and install the current source.")
 def install():
     sp.run("pip install .", shell=True)
