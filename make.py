@@ -2,15 +2,15 @@ import setuptools
 import subprocess as sp
 from glob import glob
 from sane import *
-from sane import _Sane, _Extra as Extra
+from sane import _Sane, _Help as Help
 
 VERSION = _Sane.VERSION
 RM = "rm -r"
 
 with open('README.md', 'r') as readme:
-    readme = readme.read()
+    readme = readme.read().replace('"""', r'\"\"\"')
 
-new_sources = Extra.file_condition(
+new_sources = Help.file_condition(
     targets=[
         *glob("build/*"),
         *glob("dist/*"),
@@ -68,12 +68,12 @@ def test():
     for test in glob('tests/test_*.py'):
         out = sp.run(f'python {test}', shell=True, capture_output=True)
         if out.returncode != 0:
-            Extra.warn(f'{test} failed!')
-            Extra.warn('Stdout:')
-            Extra.warn(out.stdout.decode('utf-8'))
-            Extra.warn('Stderr:')
-            Extra.warn(out.stderr.decode('utf-8'))
-    Extra.log('All tests passed.')
+            Help.warn(f'{test} failed!')
+            Help.warn('Stdout:')
+            Help.warn(out.stdout.decode('utf-8'))
+            Help.warn('Stderr:')
+            Help.warn(out.stderr.decode('utf-8'))
+    Help.log('All tests passed.')
 
 @recipe(
         recipe_deps=[build],
