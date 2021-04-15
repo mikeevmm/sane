@@ -18,6 +18,7 @@ class _Sane:
         self.recipes = []
         self.hooks = []
         self.recipe_calls = []
+        self.force = False
 
     #### Reporting ####
 
@@ -292,18 +293,19 @@ class _Sane:
             if file_deps_present or target_files_present:
                 sample_code = (
                         self.bold(
-                            'conditions=[ sane_file_condition('
+                            'from sane import _Extra as Extra\n'
+                            'conditions=[ Extra.file_condition('
                             'sources=[...], targets=[...]) ]'))
                 self.warn(f'In recipe \'{name}\':\n'
                           '`file_deps` and `target_files` are deprecated '
                           'arguments. \n'
                           f'Use\n'
-                          f' {sample_code}\n'
+                          f'{_Sane.indent(sample_code, " ")}\n'
                           'instead.\n'
                           'This condition has been automatically inserted, '
                           'but may be ignored or fail in the future.')
                 conditions.append(
-                    sane_file_condition(
+                    _Extra.file_condition(
                         sources=kwargs.get('file_deps', []),
                         targets=kwargs.get('target_files', [])))
                 if file_deps_present:
@@ -428,7 +430,10 @@ class _Sane:
 
     ### Execution ###
 
-    def run_recipe_graph(self, recipe_name, force=False):
+    def set_force(self, force):
+        self.force = force
+
+    def run_recipe_graph(self, recipe_name):
         """
         This is perhaps the most "sensitive" part of `sane`,
         so below is a more comprehensive description of what
@@ -490,7 +495,7 @@ class _Sane:
         visited = []
         backtrack_names = [root_unique_name]
         backtrack_child_idx = [0]
-        backtrack_active = [root_node.is_always_active() or force, False]
+        backtrack_active = [root_node.is_always_active() or self.force, False]
         depth = 0
         ord_ = 0
         while len(backtrack_names) > 0:
@@ -581,7 +586,7 @@ class _Sane:
                 backtrack_names.append(child_unique_name)
 
                 child_node = self.graph[child_unique_name]
-                child_active = (child_node.is_always_active() or force)
+                child_active = (child_node.is_always_active() or self.force)
                 backtrack_active.extend((child_active, False))
 
         # Sort the active recipes by depth, and then by order in which they were
@@ -608,15 +613,69 @@ class _Sane:
 
 _stateful = _Sane()
 
-### Optionally Expose Logging Tools ###
-# For consistency, this class is never to be inside this file,
-# and logging should be done via `_stateful`.
+### Optionally Exposed Tools ###
 
-
-class _Logging:
+class _Extra:
+    # For consistency, thse logging functions are never used inside this file,
+    # and logging should be done via `_stateful`.
+    @staticmethod
     def log(message): return _stateful.log(message)
+    @staticmethod
     def warn(message): return _stateful.warn(message)
+    @staticmethod
     def error(message): return _stateful.error(message)
+
+    @staticmethod
+    def file_condition(sources, targets):
+        frame = inspect.stack(context=3)[-1]
+        if type(sources) not in (tuple, list):
+            _stateful.error('`sources` is expected to be tuple or list, '
+                            f'got {type(sources)} instead.\n'
+                            f'At {_Sane.trace(frame)}')
+        if type(targets) not in (tuple, list):
+            _stateful.error('`targets` is expected to be tuple or list, '
+                            f'got {type(targets)} instead.\n'
+                            f'At {_Sane.trace(frame)}')
+        if len(sources) == 0:
+            _stateful.error('File condition without `sources` is ambiguous.\n'
+                            'Consider writing an explicit condition.\n'
+                            f'At {_Sane.trace(frame)}')
+        if len(targets) == 0:
+            _stateful.error('File condition without `targets` is ambiguous.\n'
+                            'Consider writing an explicit condition.\n'
+                            f'At {_Sane.trace(frame)}')
+        del frame
+
+        sources = [
+            os.path.abspath(os.path.expanduser(path)) for path in sources]
+        targets = [
+            os.path.abspath(os.path.expanduser(path)) for path in targets]
+
+        def condition():
+            # The oldest file in `targets` cannot be older than newest file
+            # in `sources`.
+            oldest = None
+            for target_file in targets:
+                # If a target file does not exist, assume it should be created
+                if not os.path.exists(target_file):
+                    return True
+                # Otherwise check the time
+                epoch = os.stat(target_file).st_mtime
+                if oldest is None or epoch < oldest:
+                    oldest = epoch
+            newest = None
+            for file_dep in sources:
+                # Ignore dependencies that do not exist
+                if not os.path.exists(file_dep):
+                    _stateful.warn(f'File dependency \'{file_dep}\' '
+                                    'does not exist  and will be ignored.')
+                    continue
+                epoch = os.stat(file_dep).st_mtime
+                if newest is None or epoch > newest:
+                    newest = epoch
+
+            return (oldest < newest)
+        return condition
 
 ### Recipe Tag ###
 
@@ -638,118 +697,110 @@ def recipe(*args, name=None, hooks=[], recipe_deps=[],
 
 ### Conditions ###
 
-def sane_file_condition(sources, targets):
-    frame = inspect.stack(context=3)[-1]
-    if type(sources) not in (tuple, list):
-        _stateful.error('`sources` is expected to be tuple or list, '
-                        f'got {type(sources)} instead.\n'
-                        f'At {_Sane.trace(frame)}')
-    if type(targets) not in (tuple, list):
-        _stateful.error('`targets` is expected to be tuple or list, '
-                        f'got {type(targets)} instead.\n'
-                        f'At {_Sane.trace(frame)}')
-    if len(sources) == 0:
-        _stateful.error('File condition without `sources` is ambiguous.\n'
-                        'Consider writing an explicit condition.\n'
-                        f'At {_Sane.trace(frame)}')
-    if len(targets) == 0:
-        _stateful.error('File condition without `targets` is ambiguous.\n'
-                        'Consider writing an explicit condition.\n'
-                        f'At {_Sane.trace(frame)}')
-    del frame
-
-    sources = [
-        os.path.abspath(os.path.expanduser(path)) for path in sources]
-    targets = [
-        os.path.abspath(os.path.expanduser(path)) for path in targets]
-
-    def condition():
-        # The oldest file in `targets` cannot be older than newest file
-        # in `sources`.
-        oldest = None
-        for target_file in targets:
-            # If a target file does not exist, assume it should be created
-            if not os.path.exists(target_file):
-                return True
-            # Otherwise check the time
-            epoch = os.stat(target_file).st_mtime
-            if oldest is None or epoch < oldest:
-                oldest = epoch
-        newest = None
-        for file_dep in sources:
-            # Ignore dependencies that do not exist
-            if not os.path.exists(file_dep):
-                _stateful.warn(f'File dependency \'{file_dep}\' does not exist '
-                               'and will be ignored.')
-                continue
-            epoch = os.stat(file_dep).st_mtime
-            if newest is None or epoch > newest:
-                newest = epoch
-
-        return (oldest < newest)
-    return condition
-
 
 ### Run Routine ###
 
 
-def sane_run(default=None):
-    parser = argparse.ArgumentParser(description='Make, but Sane')
-    parser.add_argument('--version', action='version',
-                        version=f'Sane {_Sane.VERSION}')
-    parser.add_argument('--verbose', metavar='level', type=int, default=0,
-                        help='Level of verbosity in logs. '
-                        f'{_Sane.VerboseLevel.NONE} is not verbose, '
-                        f'{_Sane.VerboseLevel.VERY_VERBOSE} is most verbose.')
-    parser.add_argument('recipe', nargs='?', default=None,
-                        help='The recipe to run. If none is given, the default recipe is ran.')
-    parser.add_argument('--force', action='store_true',
-                        help='Always run the recipe and all of its dependencies '
-                        '(regardless of whether dependant recipes were ran or '
-                        'conditions are True).')
-    parser.add_argument('--list', action='store_true', default=False,
-                        help='List the defined recipes.')
-    parser.add_argument('--no-ansi', action='store_true', default=False,
-                        help='Disable ANSI color characters in logging.')
+def sane_run(default=None, cli=True):
+    """Run the sane recipe process.
 
-    args = parser.parse_args()
+    """
+    if cli:
+        parser = argparse.ArgumentParser(description='Make, but Sane')
+        parser.add_argument('--version', action='version',
+                            version=f'Sane {_Sane.VERSION}')
+        parser.add_argument('--verbose', metavar='level', type=int, default=0,
+                            help='Level of verbosity in logs. '
+                            f'{_Sane.VerboseLevel.NONE} is not verbose, '
+                            f'{_Sane.VerboseLevel.VERY_VERBOSE} is most '
+                            'verbose.')
+        parser.add_argument('recipe', nargs='?', default=None,
+                            help='The recipe to run. If none is given, '
+                            'the default recipe is ran.')
+        parser.add_argument('--force', action='store_true',
+                            help='Always run the recipe and all of its '
+                            'dependencies '
+                            '(regardless of whether dependant recipes were ran '
+                            'or conditions are True).')
+        parser.add_argument('--list', action='store_true', default=False,
+                            help='List the defined recipes.')
+        parser.add_argument('--no-ansi', action='store_true', default=False,
+                            help='Disable ANSI color characters in logging.')
 
-    _stateful.set_verbose(args.verbose)
-    _stateful.set_ansi(not args.no_ansi)
+        args = parser.parse_args()
 
-    _stateful.log('Parsing registered `@recipe` decorations.',
-                  _Sane.VerboseLevel.VERY_VERBOSE)
-    _stateful.parse_decorator_calls()
+        _stateful.set_verbose(args.verbose)
+        _stateful.set_ansi(not args.no_ansi)
+        _stateful.set_force(args.force)
 
-    if args.list:
-        _stateful.list_recipes()
-        exit(0)
+        _stateful.log('Parsing registered `@recipe` decorations.',
+                      _Sane.VerboseLevel.VERY_VERBOSE)
+        _stateful.parse_decorator_calls()
 
-    recipe = args.recipe
+        if args.list:
+            _stateful.list_recipes()
+            exit(0)
+
+        recipe = args.recipe
+    else:
+        recipe = None    # Run `default`
 
     if recipe is None:
         if default is None:
-            _stateful.error('No recipe given and no default recipe, exiting.')
-        else:
-            if type(default) is not str:
-                if not hasattr(default, '__name__'):
+            if cli:
+                _stateful.error(
+                        'No recipe given and no default recipe, exiting.')
+            else:
+                frame = inspect.stack(context=3)[-1]
+                _stateful.error(
+                        'Recipe must be provided in `default` argument when '
+                        'not in CLI mode.\n'
+                        f'At {_Sane.trace(frame)}')
+            
+        if type(default) is not str:
+            if not hasattr(default, '__name__'):
+                if cli:
                     _stateful.error(
-                            'Given default recipe not a string, and '
-                            'the given object has no `__name__` attribute.\n'
-                            f'Default recipe given is \'{default}\'.')
+                        'Given default recipe not a string, and '
+                        'the given object has no `__name__` attribute.\n'
+                        f'Default recipe given is \'{default}\'.')
+                else:
+                    frame = inspect.stack(context=3)[-1]
+                    _stateful.error(
+                        'Given recipe not a string, the given object has '
+                        'no `__name__` attribute.\n'
+                        f'Recipe given is \'{default}\'.\n'
+                        f'At {_Sane.trace(frame)}')
 
-                if not _stateful.recipe_exists(default.__name__):
+            if not _stateful.recipe_exists(default.__name__):
+                if cli:
                     _stateful.error(
                             'Given default recipe not a string, and '
                             f'inferred name \'{default.__name__}\' is not '
                             'defined as a recipe.')
+                else:
+                    frame = inspect.stack(context=3)[-1]
+                    _stateful.error(
+                            'Given recipe not a string, and inferred name '
+                            f'\'{default.__name__}\' is not defined as a '
+                            'recipe.\n'
+                            f'At {_Sane.trace(frame)}')
+                    
+            recipe = default.__name__
+        else:
+            if not _stateful.recipe_exists(default):
+                if cli:
+                    _stateful.error(
+                            'No recipe given, and default recipe '
+                            f'\'{default}\' is not defined as a recipe.')
+                else:
+                    frame = inspect.stack(context=3)[-1]
+                    _stateful.error(
+                            f'Given recipe \'{default}\' is not defined '
+                            'as a recipe.\n'
+                            'At {_Sane.trace(frame)}')
 
-                recipe = default.__name__
-            else:
-                if not _stateful.recipe_exists(default):
-                    _stateful.error('No recipe given, and default recipe '
-                                    f'\'{default}\' is not defined as a recipe.')
-                recipe = default
+            recipe = default
     else:
         if not _stateful.recipe_exists(recipe):
             _stateful.error(
@@ -758,7 +809,7 @@ def sane_run(default=None):
     _stateful.log(
         f'Launching graph of recipe \'{recipe}\'.',
         _Sane.VerboseLevel.VERY_VERBOSE)
-    _stateful.run_recipe_graph(recipe, args.force)
+    _stateful.run_recipe_graph(recipe)
 
 
 if __name__ == '__main__':

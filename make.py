@@ -2,8 +2,7 @@ import setuptools
 import subprocess as sp
 from glob import glob
 from sane import *
-from sane import _Sane 
-from sane import _Logging as Log
+from sane import _Sane, _Extra as Extra
 
 VERSION = _Sane.VERSION
 RM = "rm -r"
@@ -11,7 +10,7 @@ RM = "rm -r"
 with open('README.md', 'r') as readme:
     readme = readme.read()
 
-new_sources = sane_file_condition(
+new_sources = Extra.file_condition(
     targets=[
         *glob("build/*"),
         *glob("dist/*"),
@@ -30,7 +29,7 @@ def clean():
     info="Build the PyPi distributable with setuptools.")
 def build():
     if new_sources():
-        sane_run(clean)
+        sane_run(clean, cli=False)
 
     # Build
     with open('setup.py', 'w') as setup:
@@ -69,12 +68,12 @@ def test():
     for test in glob('tests/test_*.py'):
         out = sp.run(f'python {test}', shell=True, capture_output=True)
         if out.returncode != 0:
-            Log.warn(f'{test} failed!')
-            Log.warn('Stdout:')
-            Log.warn(out.stdout.decode('utf-8'))
-            Log.warn('Stderr:')
-            Log.warn(out.stderr.decode('utf-8'))
-    Log.log('All tests passed.')
+            Extra.warn(f'{test} failed!')
+            Extra.warn('Stdout:')
+            Extra.warn(out.stdout.decode('utf-8'))
+            Extra.warn('Stderr:')
+            Extra.warn(out.stderr.decode('utf-8'))
+    Extra.log('All tests passed.')
 
 @recipe(
         recipe_deps=[build],
