@@ -569,9 +569,8 @@ class _Sane:
                 self.report_unknown(root_name, child_name, traceback)
 
             # Test if cyclic dependency
-            i = bisect.bisect_left(backtrack_names, child_unique_name)
-            cyclic = (i < len(backtrack_names) and 
-                     backtrack_names[i] == child_unique_name)
+            # (We can't bisect here, because there's no sorted order.)
+            cyclic = (child_unique_name in backtrack_names)
             if cyclic:
                 backtrack_names.append(child_unique_name)
                 traceback = ' > '.join(_Sane.human_format_unique_name(x) 
