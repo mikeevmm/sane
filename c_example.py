@@ -1,8 +1,23 @@
+"""make.py
+
+Exists in the root of a C project folder, with the following structure
+
+<root>
+   └ make.py
+   └ sane.py
+   │
+   └ src
+      └ *.c (source files)
+
+The `build` recipe will build an executable at the root.
+"""
+
 import os
 from subprocess import run
 from glob import glob
 
 from sane import *
+from sane import _Help as Help
 
 CC = "gcc"
 EXE = "main"
@@ -22,7 +37,7 @@ for source_file in sources:
     basename = os.path.basename(source_file)
     obj_file = f'{OBJ_DIR}/{basename}.o'
     objects_older_than_source = (
-        sane_file_condition(sources=[source_file], targets=[obj_file]))
+        Help.file_condition(sources=[source_file], targets=[obj_file]))
     
     @recipe(name=source_file,
             conditions=[objects_older_than_source],
