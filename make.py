@@ -30,7 +30,7 @@ def clean():
     info="Build the PyPi distributable with setuptools.")
 def build():
     if new_sources():
-        clean()
+        sane_run(clean)
 
     # Build
     with open('setup.py', 'w') as setup:
