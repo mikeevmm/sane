@@ -627,37 +627,43 @@ class _Sane:
                 child_active = (child_node.is_always_active() or self.force)
                 backtrack_active.extend((child_active, False))
 
-        # Sort the active recipes by depth, and then by order in which they were
-        # encountered.
-        sort_key = sorted(range(len(active_ordering)),
-                          key=active_ordering.__getitem__)
-        active_in_order = map(lambda i: active[i], reversed(sort_key))
-        active_in_order = filter(
-                lambda x: _Sane.unique_name_is_recipe(x[1]),
-                active_in_order)
+        if len(active_ordering) > 0:
+            # Sort the active recipes by depth, and then by order in which they
+            # were encountered.
+            sort_key = sorted(range(len(active_ordering)),
+                              key=active_ordering.__getitem__)
+            active_in_order = map(lambda i: active[i], reversed(sort_key))
+            active_in_order = filter(
+                    lambda x: _Sane.unique_name_is_recipe(x[1]),
+                    active_in_order)
 
-        depth, recipes = zip(*active_in_order)
-        recipes = list(recipes)
+            depth, recipes = zip(*active_in_order)
+            recipes = list(recipes)
 
-        self.log('Finished building and sorting dependency tree of '
-                 f'\'{root_name}\'.\n'
-                 'Launching recipes.',
-                 _Sane.VerboseLevel.DEBUG)
+            idx_groups = itertools.groupby(range(len(depth)),
+                                           key=depth.__getitem__)
 
-        idx_groups = itertools.groupby(range(len(depth)),
-                                       key=depth.__getitem__)
-        
-        with cf.ThreadPoolExecutor(max_workers=self.threads) as pool:
-            for _, idx_group in idx_groups:
-                group_recipes = map(recipes.__getitem__, idx_group)
-                group_recipes = map(lambda name: (
-                                       self.graph[name].meta['fn'],
-                                       _Sane.split_unique_name(name)[1]),
-                                    group_recipes)
-                futures = [pool.submit(self.run_recipe, *args) 
-                            for args in group_recipes]
-                for result in cf.as_completed(futures):
-                    result.result()     # Block on this depth
+            self.log('Finished building and sorting dependency tree of '
+                     f'\'{root_name}\'.\n'
+                     'Launching recipes.',
+                     _Sane.VerboseLevel.DEBUG)
+            
+            with cf.ThreadPoolExecutor(max_workers=self.threads) as pool:
+                for _, idx_group in idx_groups:
+                    group_recipes = map(recipes.__getitem__, idx_group)
+                    group_recipes = map(lambda name: (
+                                           self.graph[name].meta['fn'],
+                                           _Sane.split_unique_name(name)[1]),
+                                        group_recipes)
+                    futures = [pool.submit(self.run_recipe, *args) 
+                                for args in group_recipes]
+                    for result in cf.as_completed(futures):
+                        result.result()     # Block on this depth
+        else:
+            self.log(
+                f'Nothing to do for \'{root_name}\'',
+                _Sane.VerboseLevel.DEBUG)
+
 
 _stateful = _Sane()
 
