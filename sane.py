@@ -21,7 +21,7 @@ class _Sane:
     # Simplified versioning, MAJOR.MINOR.
     # Breaking changes change MAJOR version, backwards compatible changes
     # change MINOR version.
-    VERSION = '7.0'
+    VERSION = '7.1'
 
     ### State ###
 
@@ -233,6 +233,7 @@ class _Sane:
 
     def register_recipe(self, fn, name, hooks, recipe_deps,
                         hook_deps, conditions, info):
+        unique_name = _Sane.get_unique_name(name, _Sane.Node.RECIPE)
         # If we do not register the hooks in hook_deps, it may happen that
         # no recipe is ever registered with those hooks, leading to an
         # "unknown dependency" error. This is counter intuitive (if we depend
@@ -242,25 +243,23 @@ class _Sane:
                 ((True, x) for x in hooks),
                 ((False, x) for x in hook_deps))
         for connect, hook in iterator:
-            hook_node = \
+            hook_node = (
                 self.graph.setdefault(
                     _Sane.get_unique_name(hook, _Sane.Node.HOOK),
-                    _Sane.Node(_Sane.Node.HOOK))
+                    _Sane.Node(_Sane.Node.HOOK, connections=[])))
             if connect:
-                hook_node.connections.append(
-                    _Sane.get_unique_name(name, _Sane.Node.RECIPE))
+                hook_node.connections.append(unique_name)
             i = bisect.bisect_left(self.hooks, hook)
             if not (i < len(self.hooks) and self.hooks[i] == hook):
                 self.hooks.insert(i, hook)
 
-        connections = \
+        connections = (
             [_Sane.get_unique_name(recipe, _Sane.Node.RECIPE)
-             for recipe in recipe_deps] + \
+             for recipe in recipe_deps] + 
             [_Sane.get_unique_name(hook, _Sane.Node.HOOK)
-             for hook in hook_deps]
+             for hook in hook_deps])
 
-        unique_name = _Sane.get_unique_name(name, _Sane.Node.RECIPE)
-        self.graph[unique_name] = \
+        self.graph[unique_name] = (
             _Sane.Node(
                 _Sane.Node.RECIPE,
                 connections,
@@ -268,7 +267,7 @@ class _Sane:
                     'fn': fn,
                     'conditions': conditions,  # unique names
                     'info': info  # string
-                })
+                }))
 
         # Recipes are inserted sorted by name, so as to be able to
         # perform fuzzing later.
@@ -287,16 +286,13 @@ class _Sane:
             args, kwargs, frame = self.recipe_calls.pop()
 
             # "Unwrap" expected kwargs
-            name = kwargs['name']
-            hooks = kwargs['hooks']
-            recipe_deps = kwargs['recipe_deps']
-            hook_deps = kwargs['hook_deps']
-            conditions = kwargs['conditions']
-            info = kwargs['info']
-            fn = kwargs['fn']
-            del kwargs['fn'], kwargs['name'], kwargs['hooks'], \
-                kwargs['recipe_deps'], kwargs['hook_deps'], \
-                kwargs['conditions'], kwargs['info']
+            name = kwargs.pop('name', None)
+            hooks = kwargs.pop('hooks', None)
+            recipe_deps = kwargs.pop('recipe_deps', None)
+            hook_deps = kwargs.pop('hook_deps', None)
+            conditions = kwargs.pop('conditions', None)
+            info = kwargs.pop('info', None)
+            fn = kwargs.pop('fn', None)
 
             # Often, the user will wrongly decorate the function with `@recipe`,
             # instead of `@recipe()`, if they intend all the arguments to take
@@ -334,12 +330,8 @@ class _Sane:
                           'but may be ignored or fail in the future.')
                 conditions.append(
                     _Help.file_condition(
-                        sources=kwargs.get('file_deps', []),
-                        targets=kwargs.get('target_files', [])))
-                if file_deps_present:
-                    del kwargs['file_deps']
-                if target_files_present:
-                    del kwargs['target_files']
+                        sources=kwargs.pop('file_deps', []),
+                        targets=kwargs.pop('target_files', [])))
 
             # - Unknown keyword arguments
             if len(kwargs) > 0:
@@ -424,7 +416,7 @@ class _Sane:
                                f'as a hook dependency of recipe \'{name}\'.\n'
                                f'At {_Sane.trace(frame)}')
             self.log(
-                f'Hooks of recipe \'{name}\':\n{chr(10).join(hook_deps)}',
+                f'Hook deps of recipe \'{name}\':\n{chr(10).join(hook_deps)}',
                 _Sane.VerboseLevel.DEBUG)
 
             # - Condition dependency
@@ -446,6 +438,18 @@ class _Sane:
                 f'Conditions of recipe \'{name}\':\n'
                 f'{chr(10).join(str(x) for x in conditions)}',
                 _Sane.VerboseLevel.DEBUG)
+            
+            # - Hooks
+            for hook in hooks:
+                if type(hook) is not str:
+                    self.error(
+                            f'Hooks must be strings, but got hook \'{hook}\' '
+                            'as a hook of recipe \'{name}\'.\n'
+                            f'At {_Sane.trace(frame)}')
+            self.log(
+                f'Hooks of recipe \'{name}\':\n'
+                f'{chr(10).join(str(x) for x in hooks)}',
+                _Sane.VerboseLevel.DEBUG)
 
             # Register recipe
             self.log(
@@ -453,7 +457,6 @@ class _Sane:
                 _Sane.VerboseLevel.DEBUG)
             self.register_recipe(fn, name, hooks, recipe_deps, hook_deps,
                                  conditions, info)
-
             del frame
 
     ### Execution ###
@@ -525,8 +528,8 @@ class _Sane:
         cases.
         """
         root_name = recipe_name
-        root_unique_name = \
-            _Sane.get_unique_name(root_name, _Sane.Node.RECIPE)
+        root_unique_name = (
+            _Sane.get_unique_name(root_name, _Sane.Node.RECIPE))
         root_node = self.graph[root_unique_name]
 
         active = []
@@ -848,10 +851,11 @@ def sane_run(default=None, cli=True):
         _stateful.set_force(args.force)
         _stateful.set_threads(args.threads)
 
-        _stateful.log('Parsing registered `@recipe` decorations.',
-                      _Sane.VerboseLevel.DEBUG)
-        _stateful.parse_decorator_calls()
+    _stateful.log('Parsing registered `@recipe` decorations.',
+                  _Sane.VerboseLevel.DEBUG)
+    _stateful.parse_decorator_calls()
 
+    if cli:
         if args.list:
             _stateful.list_recipes()
             exit(0)
