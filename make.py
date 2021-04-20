@@ -63,17 +63,22 @@ setuptools.setup(
 def release():
     sp.run("twine upload dist/*", shell=True)
 
-@recipe(info="Run the unit tests in tests/")
-def test():
-    for test in glob('tests/test_*.py'):
-        out = sp.run(f'python {test}', shell=True, capture_output=True)
+for testfile in glob('tests/test_*.py'):
+    @recipe(name=testfile, hooks=['test'], info=f'Runs test \'{testfile}\'.')
+    def run_test():
+        out = sp.run(f'python \'{testfile}\'', shell=True, capture_output=True)
         if out.returncode != 0:
-            Help.warn(f'{test} failed!')
+            Help.warn(f'{testfile} failed!')
             Help.warn('Stdout:')
             Help.warn(out.stdout.decode('utf-8'))
             Help.warn('Stderr:')
             Help.warn(out.stderr.decode('utf-8'))
-    Help.log('All tests passed.')
+        else:
+            Help.log(f'\'{testfile}\' passed.')
+
+@recipe(hook_deps=['test'], info="Run the unit tests in tests/")
+def test():
+    Help.log('Finished tests.')
 
 @recipe(
         recipe_deps=[build],
