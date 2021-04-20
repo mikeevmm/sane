@@ -228,6 +228,10 @@ Returns a callable that is `True` if the newest file in `sources` is older than 
 
 The `sane` logging functions are exposed in `Help` as `log`, `warn`, `error`. These take a single string as a message, and the `error` function terminates the program with `exit(1)`.
 
+### Concurrency
+
+Recipes at the same depth are ran concurrently with a [ThreadPoolExecutor](https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor). You can specify the number of threads to use with `--threads` (as of version 7.0). By default a single thread is used.
+
 ### Calling `python ...` is Gruesome
 
 I suggest defining the following alias
