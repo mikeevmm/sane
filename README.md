@@ -73,7 +73,8 @@ os.makedirs(OBJ_DIR, exist_ok=True)
 sources = glob(f'{SRC_DIR}/*.c')
 
 # Define a compile recipe for each source file in SRC_DIR
-for source_file in sources:
+
+def make_recipe(source_file):
     basename = os.path.basename(source_file)
     obj_file = f'{OBJ_DIR}/{basename}.o'
     objects_older_than_source = (
@@ -85,6 +86,11 @@ for source_file in sources:
             info=f'Compiles the file \'{source_file}\'')
     def compile():
         run(f'{CC} {COMPILE_FLAGS} -c {source_file} -o {obj_file}', shell=True)
+
+for source_file in sources:
+    make_recipe(source_file)
+    # Why not define the recipe here directly? Because Python loops don't create
+    # new scope. See stackoverflow:2295290 for more information.
 
 # Define a linking recipe
 @recipe(hook_deps=['compile'],

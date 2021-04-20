@@ -63,7 +63,7 @@ setuptools.setup(
 def release():
     sp.run("twine upload dist/*", shell=True)
 
-for testfile in glob('tests/test_*.py'):
+def make_test(testfile):
     @recipe(name=testfile, hooks=['test'], info=f'Runs test \'{testfile}\'.')
     def run_test():
         out = sp.run(f'python \'{testfile}\'', shell=True, capture_output=True)
@@ -75,6 +75,11 @@ for testfile in glob('tests/test_*.py'):
             Help.warn(out.stderr.decode('utf-8'))
         else:
             Help.log(f'\'{testfile}\' passed.')
+
+for testfile in glob('tests/test_*.py'):
+    make_test(testfile)
+    # Why not define the recipe here directly? Because Python loops don't create
+    # new scope. See stackoverflow:2295290 for more information.
 
 @recipe(hook_deps=['test'], info="Run the unit tests in tests/")
 def test():
