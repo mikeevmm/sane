@@ -61,6 +61,7 @@ def link():
 
 # Define a run recipe
 @recipe(recipe_deps=[link],
+        conditions=[lambda: True],
         info='Runs the compiled executable.')
 def run_exe():
     run(f'./{EXE}', shell=True)

@@ -100,7 +100,9 @@ def link():
     run(f'{CC} {" ".join(obj_files)} -o {EXE}', shell=True)
 
 # Define a run recipe
+# Always run the executable!
 @recipe(recipe_deps=[link],
+        conditions=[lambda: True],
         info='Runs the compiled executable.')
 def run_exe():
     run(f'./{EXE}', shell=True)
