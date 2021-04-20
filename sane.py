@@ -14,10 +14,14 @@ import inspect
 import bisect
 import difflib
 import itertools
+import concurrent.futures as cf
 
 
 class _Sane:
-    VERSION = '6.1'
+    # Simplified versioning, MAJOR.MINOR.
+    # Breaking changes change MAJOR version, backwards compatible changes
+    # change MINOR version.
+    VERSION = '7.0'
 
     ### State ###
 
@@ -29,6 +33,7 @@ class _Sane:
         self.hooks = []
         self.recipe_calls = []
         self.force = False
+        self.threads = 1
 
     #### Reporting ####
 
@@ -627,22 +632,32 @@ class _Sane:
         sort_key = sorted(range(len(active_ordering)),
                           key=active_ordering.__getitem__)
         active_in_order = map(lambda i: active[i], reversed(sort_key))
+        active_in_order = filter(
+                lambda x: _Sane.unique_name_is_recipe(x[1]),
+                active_in_order)
+
+        depth, recipes = zip(*active_in_order)
+        recipes = list(recipes)
 
         self.log('Finished building and sorting dependency tree of '
                  f'\'{root_name}\'.\n'
                  'Launching recipes.',
                  _Sane.VerboseLevel.DEBUG)
 
-        # Finally, run the recipes in order
-        # Note that some of the elements in `active` will be hooks.
-        for _depth, unique_name in active_in_order:
-            type_, name = _Sane.split_unique_name(unique_name)
-            if type_ != _Sane.Node.RECIPE:
-                continue
-            self.log(f'Running recipe \'{name}\'.', _Sane.VerboseLevel.VERBOSE)
-            fn = self.graph[unique_name].meta['fn']
-            fn()
-
+        idx_groups = itertools.groupby(range(len(depth)),
+                                       key=depth.__getitem__)
+        
+        with cf.ThreadPoolExecutor(max_workers=self.threads) as pool:
+            for _, idx_group in idx_groups:
+                group_recipes = map(recipes.__getitem__, idx_group)
+                group_recipes = map(lambda name: (
+                                       self.graph[name].meta['fn'],
+                                       _Sane.split_unique_name(name)[1]),
+                                    group_recipes)
+                futures = [pool.submit(self.run_recipe, *recipe)
+                            for recipe in group_recipes]
+                for result in cf.as_completed(futures):
+                    pass    # Block on this depth
 
 _stateful = _Sane()
 
@@ -817,12 +832,15 @@ def sane_run(default=None, cli=True):
                             help='List the defined recipes.')
         parser.add_argument('--no-ansi', action='store_true', default=False,
                             help='Disable ANSI color characters in logging.')
+        parser.add_argument('--threads', metavar='threads', type=int, default=1,
+                            help='The number of threads to run the tasks with.')
 
         args = parser.parse_args()
 
         _stateful.set_verbose(args.verbose)
         _stateful.set_ansi(not args.no_ansi)
         _stateful.set_force(args.force)
+        _stateful.set_threads(args.threads)
 
         _stateful.log('Parsing registered `@recipe` decorations.',
                       _Sane.VerboseLevel.DEBUG)
