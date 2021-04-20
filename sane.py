@@ -112,9 +112,13 @@ class _Sane:
         exit(1)
 
     def set_verbose(self, verbose_level):
+        self.log(f'Verbose level set to {verbose_level}',
+                _Sane.VerboseLevel.DEBUG)
         self.verbose = verbose_level
 
     def set_ansi(self, use_ansi):
+        self.log(f'Using ANSI colors: {use_ansi}',
+                _Sane.VerboseLevel.DEBUG)
         self.use_ansi = use_ansi
 
     ### Dependency Graph ###
@@ -147,6 +151,10 @@ class _Sane:
             return f'recipe-{name}'
         else:
             raise ValueError(f'Unimplemented type \'{type_}\'')
+
+    @staticmethod
+    def unique_name_is_recipe(unique_name):
+        return unique_name.startswith('recipe-')
 
     @staticmethod
     def split_unique_name(unique_name):
@@ -446,7 +454,18 @@ class _Sane:
     ### Execution ###
 
     def set_force(self, force):
+        self.log(f'Forcing runs: {force}',
+                _Sane.VerboseLevel.DEBUG)
         self.force = force
+
+    def set_threads(self, threads):
+        self.log(f'Using {threads} threads.',
+                _Sane.VerboseLevel.DEBUG)
+        self.threads = threads
+
+    def run_recipe(self, fn, name):
+        self.log(f'Running recipe \'{name}\'.', _Sane.VerboseLevel.VERBOSE)
+        fn()
 
     def run_recipe_graph(self, recipe_name):
         """
