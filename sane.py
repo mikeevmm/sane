@@ -654,10 +654,10 @@ class _Sane:
                                        self.graph[name].meta['fn'],
                                        _Sane.split_unique_name(name)[1]),
                                     group_recipes)
-                futures = [pool.submit(self.run_recipe, *recipe)
-                            for recipe in group_recipes]
+                futures = [pool.submit(self.run_recipe, *args) 
+                            for args in group_recipes]
                 for result in cf.as_completed(futures):
-                    pass    # Block on this depth
+                    result.result()     # Block on this depth
 
 _stateful = _Sane()
 
@@ -911,6 +911,14 @@ def sane_run(default=None, cli=True):
 
             recipe = default
     else:
+        # Type check `recipe`, even though it should be type checked by
+        # ArgumentParser, as programmatic calls can bypass this
+        if type(recipe) is not str:
+            _stateful.error(
+                'Not calling default recipe, and given recipe is not a '
+                'string.\n'
+                f'(Got \'{recipe}\'.)\n'
+                'Are you forgetting `cli=False`?')
         if not _stateful.recipe_exists(recipe):
             _stateful.error(
                 f'Given recipe \'{recipe}\' is not defined as a recipe.')
