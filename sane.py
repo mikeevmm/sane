@@ -21,7 +21,7 @@ class _Sane:
     # Simplified versioning, MAJOR.MINOR.
     # Breaking changes change MAJOR version, backwards compatible changes
     # change MINOR version.
-    VERSION = '7.1'
+    VERSION = '7.2'
 
     ### State ###
 
@@ -359,7 +359,7 @@ class _Sane:
 
             # Check if recipe name is a duplicate
             if self.recipe_exists(name):
-                error_msg = 'Duplicate recipe of name \'{name}\'.'
+                error_msg = f'Duplicate recipe of name \'{name}\'.'
                 if name_inferred:
                     error_msg += (
                             'The name was inferred from the function name;\n'
