@@ -64,7 +64,7 @@ def release():
     sp.run("twine upload dist/*", shell=True)
 
 def make_test(testfile):
-    @recipe(name=testfile, hooks=['test'], info=f'Runs test \'{testfile}\'.')
+    @recipe(name=testfile, hooks=['test'])
     def run_test():
         out = sp.run(f'python \'{testfile}\'', shell=True, capture_output=True)
         if out.returncode != 0:
