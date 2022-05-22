@@ -847,7 +847,8 @@ def sane_run(default=None, cli=True):
         args = parser.parse_args()
 
         _stateful.set_verbose(args.verbose)
-        _stateful.set_ansi(not args.no_ansi)
+        _stateful.set_ansi(
+                not (args.no_ansi or os.environ.get('NO_COLOR', False)))
         _stateful.set_force(args.force)
         _stateful.set_threads(args.threads)
 
