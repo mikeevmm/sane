@@ -28,6 +28,7 @@ class _Sane:
     def __init__(self):
         self.verbose = 0
         self.use_ansi = True
+        self.list_all = False
         self.graph = {}
         self.recipes = []
         self.hooks = []
@@ -126,6 +127,11 @@ class _Sane:
                 _Sane.VerboseLevel.DEBUG)
         self.use_ansi = use_ansi
 
+    def set_list_all(self, list_all):
+        self.log(f'Listing all recipes now set to {list_all}',
+                _Sane.VerboseLevel.DEBUG)
+        self.list_all = list_all
+
     ### Dependency Graph ###
 
     class Node:
@@ -193,14 +199,17 @@ class _Sane:
             recipe_unique_name = _Sane.get_unique_name(
                 recipe_name, _Sane.Node.RECIPE)
             recipe_node = self.graph[recipe_unique_name]
+            recipe_info = recipe_node.meta.get('info', None)
+            if not self.list_all and recipe_info is None:
+                continue # Skip recipes with no info (unless --list-all)
             if self.use_ansi:
                 print(self.bold(recipe_name))
                 indent = 1
             else:
                 print(f' -- {recipe_name}')
                 indent = 3
-            if recipe_node.meta.get('info', None) is not None:
-                print(_Sane.indent(recipe_node.meta['info'], indent))
+            if recipe_info is not None:
+                print(_Sane.indent(recipe_info, indent))
             else:
                 print(_Sane.indent('[no information given]', indent))
 
@@ -839,6 +848,9 @@ def sane_run(default=None, cli=True):
                             'or conditions are True).')
         parser.add_argument('--list', action='store_true', default=False,
                             help='List the defined recipes.')
+        parser.add_argument('--list-all', action='store_true', default=False,
+                            help='List all recipes, including those with no '
+                            'information.')
         parser.add_argument('--no-ansi', action='store_true', default=False,
                             help='Disable ANSI color characters in logging.')
         parser.add_argument('--threads', metavar='threads', type=int, default=1,
@@ -851,13 +863,14 @@ def sane_run(default=None, cli=True):
                 not (args.no_ansi or os.environ.get('NO_COLOR', False)))
         _stateful.set_force(args.force)
         _stateful.set_threads(args.threads)
+        _stateful.set_list_all(args.list_all)
 
     _stateful.log('Parsing registered `@recipe` decorations.',
                   _Sane.VerboseLevel.DEBUG)
     _stateful.parse_decorator_calls()
 
     if cli:
-        if args.list:
+        if args.list or args.list_all:
             _stateful.list_recipes()
             exit(0)
 
