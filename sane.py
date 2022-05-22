@@ -21,7 +21,7 @@ class _Sane:
     # Simplified versioning, MAJOR.MINOR.
     # Breaking changes change MAJOR version, backwards compatible changes
     # change MINOR version.
-    VERSION = '7.2'
+    VERSION = '7.3'
 
     ### State ###
 
