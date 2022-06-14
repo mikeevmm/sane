@@ -7,6 +7,8 @@ from sane import _Sane, _Help as Help
 VERSION = _Sane.VERSION
 RM = "rm -r"
 
+os.makedirs('dist/', exist_ok=True)
+
 with open('README.md', 'r') as readme:
     readme = readme.read().replace('"""', r'\"\"\"')
 
