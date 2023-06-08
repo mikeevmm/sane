@@ -1,10 +1,10 @@
 
-"""Sane, Makefile for humans.
+'''Sane, Makefile for humans.
 
 Copyright 2023 Miguel Murça
 
 Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the "Software"), to deal in
+this software and associated documentation files (the 'Software'), to deal in
 the Software without restriction, including without limitation the rights to
 use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
 of the Software, and to permit persons to whom the Software is furnished to do
@@ -13,14 +13,14 @@ so, subject to the following conditions:
 The above copyright notice and this permission notice shall be included in all
 copies or substantial portions of the Software.
 
-THE SOFTWARE IS PROVIDED "AS IS", WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
+THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
 IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
 FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
 AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
 LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
 OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
 SOFTWARE.
-"""
+'''
 
 import os
 import sys
@@ -38,11 +38,10 @@ class _Sane:
     ANSI = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
 
     Context = namedtuple(
-        "Context", ("filename", "lineno", "code_context", "index"))
-    Task = namedtuple("Task", ("inner", "context"))
-    Cmd = namedtuple("Cmd", ("inner", "context"))
+        'Context', ('filename', 'lineno', 'code_context', 'index'))
+    Depends = namedtuple('Depends', ('value', 'context'))
 
-    instantiated = False
+    singleton = None
 
     @staticmethod
     def strip_ansi(text):
@@ -58,30 +57,31 @@ class _Sane:
                 stack.clear()
                 return context
 
+    @staticmethod
+    def get():
+        if _Sane.singleton is None:
+            _Sane.singleton = _Sane()
+        return _Sane.singleton
+
     def __init__(self):
+        if _Sane.singleton is not None:
+            raise Exception()
         self.setup_logging()
-        self.ensure_single_instance()
         self.run_on_exit()
 
-        self.cmds = []
-        self.tasks = []
-                      
+        self.ran = False
+        self.cmds = {}
+        self.tasks = {}
+
     def setup_logging(self):
         if os.environ.get('NO_COLOR', False):
             self.color = False
         else:
             self.color = True
 
-    def ensure_single_instance(self):
-        context = self.get_context()
-        if _Sane.instantiated:
-            self.error('Don\'t import sane more than once.')
-            self.show_context(context, 'error')
-            exit(1)
-        _Sane.instantiated = True
-
     def run_on_exit(self):
         self.exit_code = 0
+
         def save_and_exit(wraps):
             def _exit(code=0):
                 self.exit_code = code
@@ -113,6 +113,8 @@ class _Sane:
             self.show_context(context, 'error')
             exit(1)
 
+        self.ensure_positional_args_only(context, func)
+
         props = self.get_props(func)
         if self.is_task_or_cmd(func):
             self.error('More than one @cmd or @task.')
@@ -121,15 +123,14 @@ class _Sane:
                 '(A function can only have a single @cmd or @task statement.)')
             exit(1)
         props['type'] = 'cmd'
-
-        self.ensure_positional_args_only(context, func)
+        props['context'] = context
 
         def cmd(*args, **kwargs):
             # TODO: Run the tree, not just the function.
             return func(*args, **kwargs)
 
-        cmd.__dict__['__sane__'] = { 'type': 'wrapper', 'inner': func }
-        self.cmds.append(_Sane.Cmd(func, context))
+        cmd.__dict__['__sane__'] = {'type': 'wrapper', 'inner': func}
+        self.cmds.setdefault(func.__name__, []).append(func)
         return cmd
 
     def task_decorator(self, *args, **kwargs):
@@ -152,6 +153,8 @@ class _Sane:
             self.show_context(context, 'error')
             exit(1)
 
+        self.ensure_no_args(context, func)
+
         props = self.get_props(func)
         if self.is_task_or_cmd(func):
             self.error('More than one @cmd or @task.')
@@ -160,15 +163,14 @@ class _Sane:
                 '(A function can only have a single @cmd or @task statement.)')
             exit(1)
         props['type'] = 'task'
-
-        self.ensure_no_args(context, func)
+        props['context'] = context
 
         def task():
             # TODO: Run the tree, not just the function
             return func()
 
-        task.__dict__['__sane__'] = { 'type': 'wrapper', 'inner': func }
-        self.tasks.append(_Sane.Task(func, context))
+        task.__dict__['__sane__'] = {'type': 'wrapper', 'inner': func}
+        self.tasks.setdefault(func.__name__, []).append(func)
         return task
 
     def depends_decorator(self, *pargs, **args):
@@ -211,10 +213,10 @@ class _Sane:
             self.show_context(context)
             exit(1)
 
-        quid = set()
+        quid = []
         arg = args['on_quid']
         if type(arg) is str:
-            quid.add(arg)
+            quid.append(_Sane.Depends(arg, context))
         elif hasattr(arg, '__iter__'):
             if type(arg) not in (tuple, list, set):
                 self.warn('on_quid= argument is not a collection, although it is iterable. '
@@ -226,7 +228,7 @@ class _Sane:
 
             for element in arg:
                 if type(element) is str:
-                    quid.add(element)
+                    quid.append(_Sane.Depends(element, context))
                 else:
                     self.error('on_quid= argument must be iterable of string.')
                     self.show_context(context, 'error')
@@ -238,7 +240,7 @@ class _Sane:
             exit(1)
 
         props = self.get_props(func)
-        props['depends']['quid'].union(quid)
+        props['depends']['quid'].extend(quid)
 
         return func
 
@@ -274,7 +276,7 @@ class _Sane:
                 exit(1)
 
         props = self.get_props(func)
-        props['depends']['cmd'].add((cmd, args['args']))
+        props['depends']['cmd'].append(_Sane.Depends((cmd, args['args']), context))
 
         # Resolution of `cmd` and validation of `args` happens at graph build stage.
 
@@ -312,7 +314,7 @@ class _Sane:
                 exit(1)
 
         props = self.get_props(func)
-        props['depends']['task'].add(task)
+        props['depends']['task'].append(_Sane.Depends(task, context))
 
         # Resolution of task happens at graph build stage.
 
@@ -342,7 +344,7 @@ class _Sane:
                 self.show_context(context, 'error')
                 exit(1)
             props = self.get_props(func)
-            props['quid'].add(quid)
+            props['quid'].append(quid)
             return func
 
         return specific_decorator
@@ -356,19 +358,81 @@ class _Sane:
                 self.show_context(context, 'error')
                 exit(1)
             props = self.get_props(func)
-            props['when'].add(condition)
+            props['when'].append(condition)
             return func
         return specific_decorator
 
     def run(self):
-        if self.exit_code:
+        if self.exit_code or self.ran:
             return
+        self.ran = True
 
-        self.resolve_properties()
-    
-    def resolve_properties(self):
-        # TODO
-        pass
+        try:
+            self._run()
+        except SystemExit as sys_exit:
+            # TODO: Change exit code and exit cleanly.
+            # This is currently apparently not possible.
+            # See https://github.com/python/cpython/issues/103512
+            # os._exit ignores other handlers and does not flush buffers.
+            os._exit(sys_exit.code)
+
+    def _run(self):
+        for cmd_name, cmd_list in self.cmds.items():
+            for cmd in cmd_list:
+                props = self.get_props(cmd)
+                self.resolve_depends(props)
+
+        for task_name, task_list in self.tasks.items():
+            for task in task_list:
+                props = self.get_props(cmd)
+                self.resolve_depends(props)
+
+    def resolve_depends(self, props):
+        for i in range(len(props['depends']['task'])):
+            task_depends, context = props['depends']['task'][i]
+            if type(task_depends) is str:
+                if task_depends not in self.tasks:
+                    self.error(f'No @task named {task_depends}.')
+                    self.show_context(context, 'error')
+                    self.hint(
+                        '(You can reference a function directly, instead of a string.)')
+                    self.hint(
+                        '(Are you missing a @task somewhere?)')
+                    exit(1)
+                elif len(self.tasks[task_depends]) > 1:
+                    self.error(
+                        f'There\'s more than one @task named {task_depends}.')
+                    self.show_context(context, 'error')
+                    self.hint(
+                        '(You can reference a function directly, instead of a string.)')
+                    self.hint(
+                        '(Alternatively, use @quid, and @depends(on_quid=...).)')
+                    exit(1)
+                resolved = self.tasks[task_depends][0]
+                props['depends']['task'][i] = (resolved, context)
+
+        for i in range(len(props['depends']['cmd'])):
+            cmd_depends, context = props['depends']['cmd'][i]
+            if type(cmd_depends) is str:
+                if cmd_depends not in self.cmds:
+                    self.error(f'No @cmd named {cmd_depends}.')
+                    self.show_context(context, 'error')
+                    self.hint(
+                        '(You can reference a function directly, instead of a string.)')
+                    self.hint(
+                        '(Are you missing a @cmd somewhere?)')
+                    exit(1)
+                elif len(self.cmds[cmd_depends]) > 1:
+                    self.error(
+                        f'There\'s more than one @cmd named {cmd_depends}.')
+                    self.show_context(context, 'error')
+                    self.hint(
+                        '(You can reference a function directly, instead of a string.)')
+                    self.hint(
+                        '(Alternatively, use @quid, and @depends(on_quid=...).)')
+                    exit(1)
+                resolved = self.cmds[cmd_depends][0]
+                props['depends']['cmd'][i] = (resolved, context)
 
     def is_task_or_cmd(self, func):
         props = self.get_props(func)
@@ -397,12 +461,12 @@ class _Sane:
         if '__sane__' not in func.__dict__:
             func.__dict__['__sane__'] = {
                 'type': None,
-                'when': set(),
-                'quid': set(),
+                'when': [],
+                'quid': [],
                 'depends': {
-                    'quid': set(),
-                    'cmd': set(),
-                    'task': set()
+                    'quid': [],
+                    'cmd': [],
+                    'task': [],
                 }
             }
 
@@ -463,7 +527,7 @@ class _Sane:
             print(f'{line_ctx}\n{info}', file=sys.stderr)
 
 
-_sane = _Sane()
+_sane = _Sane.get()
 cmd = _sane.cmd_decorator
 task = _sane.task_decorator
 depends = _sane.depends_decorator
