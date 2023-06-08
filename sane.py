@@ -26,6 +26,8 @@ import os
 import sys
 import re
 import inspect
+import atexit
+import builtins
 from typing import Literal
 from collections import namedtuple
 
@@ -37,6 +39,10 @@ class _Sane:
 
     Context = namedtuple(
         "Context", ("filename", "lineno", "code_context", "index"))
+    Task = namedtuple("Task", ("inner", "context"))
+    Cmd = namedtuple("Cmd", ("inner", "context"))
+
+    instantiated = False
 
     @staticmethod
     def strip_ansi(text):
@@ -53,13 +59,43 @@ class _Sane:
                 return context
 
     def __init__(self):
+        self.setup_logging()
+        self.ensure_single_instance()
+        self.run_on_exit()
+
+        self.cmds = []
+        self.tasks = []
+                      
+    def setup_logging(self):
         if os.environ.get('NO_COLOR', False):
             self.color = False
         else:
             self.color = True
 
+    def ensure_single_instance(self):
+        context = self.get_context()
+        if _Sane.instantiated:
+            self.error('Don\'t import sane more than once.')
+            self.show_context(context, 'error')
+            exit(1)
+        _Sane.instantiated = True
+
+    def run_on_exit(self):
+        self.exit_code = 0
+        def save_and_exit(wraps):
+            def _exit(code=0):
+                self.exit_code = code
+                return wraps(code)
+            return _exit
+        _sys_exit = sys.exit
+        _builtins_exit = builtins.exit
+        sys.exit = save_and_exit(_sys_exit)
+        builtins.exit = save_and_exit(_builtins_exit)
+        atexit.register(self.run)
+
     def cmd_decorator(self, *args, **kwargs):
         context = _Sane.get_context()
+
         if len(args) > 1 or len(kwargs) > 0:
             self.error('@cmd does not take arguments.')
             self.show_context(context, 'error')
@@ -84,7 +120,17 @@ class _Sane:
             self.hint(
                 '(A function can only have a single @cmd or @task statement.)')
             exit(1)
-        return self.make_cmd(func)
+        props['type'] = 'cmd'
+
+        self.ensure_positional_args_only(context, func)
+
+        def cmd(*args, **kwargs):
+            # TODO: Run the tree, not just the function.
+            return func(*args, **kwargs)
+
+        cmd.__dict__['__sane__'] = { 'type': 'wrapper', 'inner': func }
+        self.cmds.append(_Sane.Cmd(func, context))
+        return cmd
 
     def task_decorator(self, *args, **kwargs):
         context = _Sane.get_context()
@@ -113,7 +159,17 @@ class _Sane:
             self.hint(
                 '(A function can only have a single @cmd or @task statement.)')
             exit(1)
-        return self.make_task(func)
+        props['type'] = 'task'
+
+        self.ensure_no_args(context, func)
+
+        def task():
+            # TODO: Run the tree, not just the function
+            return func()
+
+        task.__dict__['__sane__'] = { 'type': 'wrapper', 'inner': func }
+        self.tasks.append(_Sane.Task(func, context))
+        return task
 
     def depends_decorator(self, *pargs, **args):
         context = _Sane.get_context()
@@ -304,31 +360,27 @@ class _Sane:
             return func
         return specific_decorator
 
-    def make_cmd(self, func):
-        def cmd(*args, **kwargs):
-            # TODO
-            return func(*args, **kwargs)
+    def run(self):
+        if self.exit_code:
+            return
 
-        cmd.__dict__['__sane__'] = {
-            'type': 'cmd',
-            'inner': func,
-        }
-        return cmd
-
-    def make_task(self, func):
-        def task():
-            # TODO
-            return func()
-
-        task.__dict__['__sane__'] = {
-            'type': 'task',
-            'inner': func,
-        }
-        return task
+        self.resolve_properties()
+    
+    def resolve_properties(self):
+        # TODO
+        pass
 
     def is_task_or_cmd(self, func):
         props = self.get_props(func)
-        return ('type' in props)
+        return props['type'] is not None
+
+    def ensure_no_args(self, context: Context, func):
+        signature = inspect.signature(func)
+        if len(signature.parameters.values()) > 0:
+            self.error('@task cannot have arguments.')
+            self.show_context(context, 'error')
+            self.hint('(Use a @cmd instead.)')
+            exit(1)
 
     def ensure_positional_args_only(self, context: Context, func):
         signature = inspect.signature(func)
@@ -341,13 +393,10 @@ class _Sane:
             self.show_context(context, 'error')
             exit(1)
 
-    def main_function(self):
-        # TODO
-        pass
-
     def get_props(self, func):
         if '__sane__' not in func.__dict__:
             func.__dict__['__sane__'] = {
+                'type': None,
                 'when': set(),
                 'quid': set(),
                 'depends': {
@@ -401,9 +450,15 @@ class _Sane:
             elif style == 'warn':
                 print('\x1b[33m' + f'{line_ctx}\n{info}' +
                       '\x1b[0m', file=sys.stderr)
-            else:
+            elif style == 'error':
                 print('\x1b[35m' + f'{line_ctx}\n{info}' +
                       '\x1b[0m', file=sys.stderr)
+            elif style == 'hint':
+                print('\x1b[2m' + f'{line_ctx}\n{info}' +
+                      '\x1b[0m', file=sys.stderr)
+            else:
+                raise ValueError(
+                    f'Expected \'{style}\' to be one of log, warn, error, hint.')
         else:
             print(f'{line_ctx}\n{info}', file=sys.stderr)
 
@@ -414,8 +469,6 @@ task = _sane.task_decorator
 depends = _sane.depends_decorator
 quid = _sane.quid_decorator
 when = _sane.when_decorator
-sane = _sane.main_function
-
 
 if __name__ == '__main__':
     _stateful.log(f'Sane v{_Sane.VERSION}, by Miguel Murça.\n'
