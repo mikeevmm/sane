@@ -66,12 +66,13 @@ class _Sane:
     def __init__(self):
         if _Sane.singleton is not None:
             raise Exception()
-        self.setup_logging()
-        self.run_on_exit()
-
         self.ran = False
         self.cmds = {}
         self.tasks = {}
+        self.quid = {}
+        self.graph = None
+        self.setup_logging()
+        self.run_on_exit()
 
     def setup_logging(self):
         if os.environ.get('NO_COLOR', False):
@@ -81,6 +82,14 @@ class _Sane:
 
     def run_on_exit(self):
         self.exit_code = 0
+
+        _sys_excepthook = sys.excepthook
+
+        def save_and_except(type, value, traceback):
+            self.exit_code = 1
+            if _sys_excepthook:
+                _sys_excepthook(type, value, traceback)
+        sys.excepthook = save_and_except
 
         def save_and_exit(wraps):
             def _exit(code=0):
@@ -100,18 +109,18 @@ class _Sane:
             self.error('@cmd does not take arguments.')
             self.show_context(context, 'error')
             self.hint('(To specify other properties, use @quid or @depends.)')
-            exit(1)
+            sys.exit(1)
         elif len(args) == 0:
             self.error('@cmd does not have parentheses.')
             self.show_context(context, 'error')
             self.hint('(Remove the parentheses.)')
-            exit(1)
+            sys.exit(1)
 
         func = args[0]
         if not hasattr(func, '__call__'):
             self.error('@cmd must decorate a function.')
             self.show_context(context, 'error')
-            exit(1)
+            sys.exit(1)
 
         self.ensure_positional_args_only(context, func)
 
@@ -121,7 +130,7 @@ class _Sane:
             self.show_context(context, 'error')
             self.hint(
                 '(A function can only have a single @cmd or @task statement.)')
-            exit(1)
+            sys.exit(1)
         props['type'] = 'cmd'
         props['context'] = context
 
@@ -140,18 +149,18 @@ class _Sane:
             self.error('@task does not take arguments.')
             self.show_context(context, 'error')
             self.hint('(To specify other properties, use @quid or @depends.)')
-            exit(1)
+            sys.exit(1)
         elif len(args) == 0:
             self.error('@task does not have parentheses.')
             self.show_context(context, 'error')
             self.hint('(Remove the parentheses.)')
-            exit(1)
+            sys.exit(1)
 
         func = args[0]
         if not hasattr(func, '__call__'):
             self.error('@task must decorate a function.')
             self.show_context(context, 'error')
-            exit(1)
+            sys.exit(1)
 
         self.ensure_no_args(context, func)
 
@@ -161,7 +170,7 @@ class _Sane:
             self.show_context(context, 'error')
             self.hint(
                 '(A function can only have a single @cmd or @task statement.)')
-            exit(1)
+            sys.exit(1)
         props['type'] = 'task'
         props['context'] = context
 
@@ -189,14 +198,14 @@ class _Sane:
             self.show_context(context, 'error')
             self.hint('(If you wish to have multiple dependencies, '
                       'use multiple @depends statements.)')
-            exit(1)
+            sys.exit(1)
         given = given[0]
 
         def specific_decorator(func):
             if self.is_task_or_cmd(func):
                 self.error('@depends cannot come before @cmd or @task.')
                 self.show_context(context, 'error')
-                exit(1)
+                sys.exit(1)
 
             if given == 'on_quid':
                 return self.depends_on_quid(context, func, **args)
@@ -211,7 +220,7 @@ class _Sane:
         if len(args) != 1:
             self.error('@depends(on_quid=...) does not take other arguments.')
             self.show_context(context)
-            exit(1)
+            sys.exit(1)
 
         quid = []
         arg = args['on_quid']
@@ -232,12 +241,12 @@ class _Sane:
                 else:
                     self.error('on_quid= argument must be iterable of string.')
                     self.show_context(context, 'error')
-                    exit(1)
+                    sys.exit(1)
         else:
             self.error(
                 'on_quid= argument must be string or iterable of string.')
             self.show_context(context, 'error')
-            exit(1)
+            sys.exit(1)
 
         props = self.get_props(func)
         props['depends']['quid'].extend(quid)
@@ -254,29 +263,36 @@ class _Sane:
                 '@depends(on_cmd=..., args=...) takes exactly these two arguments.')
             self.show_context(context, 'error')
             self.hint('(Did you mean @depends(on_task=...)?)')
-            exit(1)
+            sys.exit(1)
 
         cmd = args['on_cmd']
         if type(cmd) is not str:
             if hasattr(cmd, '__call__'):
                 if not hasattr(cmd, '__sane__'):
-                    self.error('Given function is not a cmd.')
+                    self.error('Given function is not a @cmd.')
                     self.show_context(context, 'error')
                     self.hint('(Is the referenced function missing a @cmd?)')
-                    exit(1)
-                elif cmd.__sane__.get('type', None) != 'cmd':
-                    self.error('Given function is not a cmd.')
+                    sys.exit(1)
+                elif cmd.__sane__.get('type', None) != 'wrapper':
+                    self.error('Given function is not decorated with @cmd.')
+                    self.show_context(context, 'error')
+                    self.hint('(Add a @cmd before the other decorators.)')
+                    sys.exit(1)
+                cmd = cmd.__sane__['inner']
+                if cmd.__sane__['type'] != 'cmd':
+                    self.error('Given function is not a @cmd.')
                     self.show_context(context, 'error')
                     self.hint('(Did you mean @depends(on_task=...)?)')
-                    exit(1)
+                    sys.exit(1)
             else:
                 self.error(
                     'on_cmd= argument must be a cmd, or the name of a cmd.')
                 self.show_context(context, 'error')
-                exit(1)
+                sys.exit(1)
 
         props = self.get_props(func)
-        props['depends']['cmd'].append(_Sane.Depends((cmd, args['args']), context))
+        props['depends']['cmd'].append(
+            _Sane.Depends((cmd, args['args']), context))
 
         # Resolution of `cmd` and validation of `args` happens at graph build stage.
 
@@ -288,30 +304,36 @@ class _Sane:
                 self.error('@depends(on_task=...) takes no args= parameter.')
                 self.show_context(context, 'error')
                 self.hint('(Did you mean @depends(on_cmd=..., args=...)?)')
-                exit(1)
+                sys.exit(1)
             else:
                 self.error('@depends(on_task=...) takes no other parameters.')
                 self.show_context(context, 'error')
-                exit(1)
+                sys.exit(1)
 
         task = args['on_task']
         if type(task) is not str:
             if hasattr(task, '__call__'):
                 if not hasattr(task, '__sane__'):
-                    self.error('Given function is not a task.')
+                    self.error('Given function is not a @task.')
                     self.show_context(context, 'error')
                     self.hint('(Is the referenced function missing a @task?)')
-                    exit(1)
-                elif cmd.__sane__.get('type', None) != 'task':
-                    self.error('Given function is not a task.')
+                    sys.exit(1)
+                elif task.__sane__.get('type', None) != 'wrapper':
+                    self.error('Given function is not decorated with @task.')
                     self.show_context(context, 'error')
-                    self.hint('(Did you mean @depends(on_task=...)?)')
-                    exit(1)
+                    self.hint('(Add a @task before the other decorators.)')
+                    sys.exit(1)
+                task = task.__sane__['inner']
+                if task.__sane__['type'] != 'task':
+                    self.error('Given function is not a @task.')
+                    self.show_context(context, 'error')
+                    self.hint('(Did you mean @depends(on_cmd=...)?)')
+                    sys.exit(1)
             else:
                 self.error(
                     'on_task= argument must be a task, or the name of a task.')
                 self.show_context(context, 'error')
-                exit(1)
+                sys.exit(1)
 
         props = self.get_props(func)
         props['depends']['task'].append(_Sane.Depends(task, context))
@@ -329,36 +351,55 @@ class _Sane:
             self.error('@quid takes a single positional argument.')
             self.show_context(context, 'error')
             self.hint('(For example, @quid(\'quo\').)')
-            exit(1)
+            sys.exit(1)
 
         quid = args[0]
         if type(quid) is not str:
             self.error('@quid must be a string.')
             self.show_context(context, 'error')
             self.hint('(For example, @quid(\'quo\').)')
-            exit(1)
+            sys.exit(1)
 
         def specific_decorator(func):
             if self.is_task_or_cmd(func):
                 self.error('@quid cannot come before @cmd or @task.')
                 self.show_context(context, 'error')
-                exit(1)
+                sys.exit(1)
             props = self.get_props(func)
-            props['quid'].append(quid)
+            self.quid.setdefault(quid, []).append(func)
             return func
 
         return specific_decorator
 
-    def when_decorator(self, condition):
+    def when_decorator(self, *args, **kwargs):
         context = _Sane.get_context()
+
+        if len(kwargs) > 0 or len(args) != 1:
+            self.error('@when takes a single function, with no arguments.')
+            self.show_context(context, 'error')
+            sys.exit(1)
+
+        condition = args[0]
+
+        if not hasattr(condition, '__call__'):
+            self.error('Argument is not a function.')
+            self.show_context(context, 'error')
+            self.hint('(Use @when(fn), not @when(fn()).)')
+            sys.exit(1)
 
         def specific_decorator(func):
             if self.is_task_or_cmd(func):
                 self.error('@when cannot come before @cmd or @task.')
                 self.show_context(context, 'error')
-                exit(1)
+                sys.exit(1)
             props = self.get_props(func)
-            props['when'].append(condition)
+            if props['when'] is not None:
+                self.error(
+                    'To avoid ambiguity, a @cmd or @task can only have one @when.')
+                self.show_context(context, 'error')
+                self.hint(
+                    '(To define a conjunction, you can use @when(lambda: a() or b() or c()).)')
+            props['when'] = condition
             return func
         return specific_decorator
 
@@ -368,7 +409,8 @@ class _Sane:
         self.ran = True
 
         try:
-            self._run()
+            self.resolve_depends()
+            self.build_graph()
         except SystemExit as sys_exit:
             # TODO: Change exit code and exit cleanly.
             # This is currently apparently not possible.
@@ -376,18 +418,18 @@ class _Sane:
             # os._exit ignores other handlers and does not flush buffers.
             os._exit(sys_exit.code)
 
-    def _run(self):
+    def resolve_depends(self):
         for cmd_name, cmd_list in self.cmds.items():
             for cmd in cmd_list:
                 props = self.get_props(cmd)
-                self.resolve_depends(props)
+                self.resolve_element_depends(props)
 
         for task_name, task_list in self.tasks.items():
             for task in task_list:
-                props = self.get_props(cmd)
-                self.resolve_depends(props)
+                props = self.get_props(task)
+                self.resolve_element_depends(props)
 
-    def resolve_depends(self, props):
+    def resolve_element_depends(self, props):
         for i in range(len(props['depends']['task'])):
             task_depends, context = props['depends']['task'][i]
             if type(task_depends) is str:
@@ -398,7 +440,7 @@ class _Sane:
                         '(You can reference a function directly, instead of a string.)')
                     self.hint(
                         '(Are you missing a @task somewhere?)')
-                    exit(1)
+                    sys.exit(1)
                 elif len(self.tasks[task_depends]) > 1:
                     self.error(
                         f'There\'s more than one @task named {task_depends}.')
@@ -407,12 +449,13 @@ class _Sane:
                         '(You can reference a function directly, instead of a string.)')
                     self.hint(
                         '(Alternatively, use @quid, and @depends(on_quid=...).)')
-                    exit(1)
+                    sys.exit(1)
                 resolved = self.tasks[task_depends][0]
                 props['depends']['task'][i] = (resolved, context)
 
         for i in range(len(props['depends']['cmd'])):
-            cmd_depends, context = props['depends']['cmd'][i]
+            value, context = props['depends']['cmd'][i]
+            cmd_depends, cmd_args = value
             if type(cmd_depends) is str:
                 if cmd_depends not in self.cmds:
                     self.error(f'No @cmd named {cmd_depends}.')
@@ -421,7 +464,7 @@ class _Sane:
                         '(You can reference a function directly, instead of a string.)')
                     self.hint(
                         '(Are you missing a @cmd somewhere?)')
-                    exit(1)
+                    sys.exit(1)
                 elif len(self.cmds[cmd_depends]) > 1:
                     self.error(
                         f'There\'s more than one @cmd named {cmd_depends}.')
@@ -430,9 +473,102 @@ class _Sane:
                         '(You can reference a function directly, instead of a string.)')
                     self.hint(
                         '(Alternatively, use @quid, and @depends(on_quid=...).)')
-                    exit(1)
+                    sys.exit(1)
+
                 resolved = self.cmds[cmd_depends][0]
-                props['depends']['cmd'][i] = (resolved, context)
+
+                signature = inspect.signature(resolved)
+                mandatory_arg_count = 0
+                optional_arg_count = 0
+                for arg in signature.parameters.values():
+                    if arg.default is inspect.Parameter.empty:
+                        mandatory_arg_count += 1
+                    else:
+                        optional_arg_count += 1
+                wrong_number_of_args = (len(cmd_args) < mandatory_arg_count or
+                                        len(cmd_args) > mandatory_arg_count + optional_arg_count)
+                if wrong_number_of_args:
+                    self.error(
+                        'Arguments given in @depends are incompatible with the function signature.')
+                    self.show_context(context, 'error')
+                    sys.exit(1)
+
+                props['depends']['cmd'][i] = ((resolved, cmd_args), context)
+
+    def build_graph(self):
+        unvisited = set()
+        while len(self.cmds) > 0:
+            _key, items = self.cmds.popitem()
+            for item in items:
+                unvisited.add(item)
+        while len(self.tasks) > 0:
+            _key, items = self.tasks.popitem()
+            for item in items:
+                unvisited.add(item)
+
+        graph = []
+        graph_map = {}
+        args_edges = {}
+        stack = []
+        while len(unvisited) > 0:
+            if len(stack) == 0:
+                node = unvisited.pop()
+                stack.append(('visit', node))
+
+            while len(stack) > 0:
+                op, node = stack.pop()
+                type_ = node.__sane__['type']
+                state = node.__sane__.setdefault('graph', 'unmarked')
+                depends = node.__sane__['depends']
+
+                if op == 'seal':
+                    node.__sane__['graph'] = 'permanent'
+                    graph.append(node)
+                    graph_map[node] = len(graph) - 1
+                elif op == 'visit':
+                    if state == 'permanent':
+                        continue
+                    if state == 'temporary':
+                        self.report_loop(stack)
+
+                    node.__sane__['graph'] = 'temporary'
+
+                    stack.append(('seal', node))
+                    for quid in depends['quid']:
+                        quid, context = quid
+                        for element in self.quid.setdefault(quid, []):
+                            stack.append(('visit', element))
+                    for cmd in depends['cmd']:
+                        cmd_args, _context = cmd
+                        cmd, args = cmd_args
+                        args_edges[(node, cmd)] = cmd_args
+                        stack.append(('visit', cmd))
+                    for task in depends['task']:
+                        task, _context = task
+                        stack.append(('visit', task))
+                else:
+                    raise ValueError()
+
+        print(graph, graph_map, args_edges)
+
+    def report_loop(self, stack):
+        lines = ['Dependency loop.\n']
+        for element in reversed(stack):
+            op_, node = element
+            name = node.__name__
+            context = node.__sane__['context']
+            lines.append(f'* {name}\n')
+            for line in self.format_context(context).splitlines():
+                lines.append('| ' + line + '\n')
+            lines.append('|\n')
+
+        loop_op_, loop_node = stack[-1]
+        loop_name = loop_node.__name__
+        loop_context = node.__sane__['context']
+        lines.append(f'* {loop_name}')
+
+        self.error(''.join(lines))
+        sys.exit(1)
 
     def is_task_or_cmd(self, func):
         props = self.get_props(func)
@@ -444,7 +580,7 @@ class _Sane:
             self.error('@task cannot have arguments.')
             self.show_context(context, 'error')
             self.hint('(Use a @cmd instead.)')
-            exit(1)
+            sys.exit(1)
 
     def ensure_positional_args_only(self, context: Context, func):
         signature = inspect.signature(func)
@@ -455,14 +591,14 @@ class _Sane:
         if any_non_positional:
             self.error('@cmd cannot have non-positional arguments.')
             self.show_context(context, 'error')
-            exit(1)
+            sys.exit(1)
 
     def get_props(self, func):
         if '__sane__' not in func.__dict__:
             func.__dict__['__sane__'] = {
                 'type': None,
-                'when': [],
-                'quid': [],
+                'context': None,
+                'when': None,
                 'depends': {
                     'quid': [],
                     'cmd': [],
@@ -494,7 +630,7 @@ class _Sane:
             message = '\x1b[2m' + message + '\x1b[0m'
         print(message, file=sys.stderr)
 
-    def show_context(self, context: Context, style: Literal['log', 'warn', 'error']):
+    def format_context(self, context: Context):
         line_ctx = f'\n{context.filename}: l.{context.lineno}'
         info = []
         if context.index < context.lineno:
@@ -506,25 +642,24 @@ class _Sane:
                 info_line = '   ' + code_line
             info.append(info_line)
         info = ''.join(info)
+        return f'{line_ctx}\n{info}'
 
+    def show_context(self, context: Context, style: Literal['log', 'warn', 'error', 'debug']):
+        info = self.format_context(context)
         if self.color:
             if style == 'log':
-                print('\x1b[2m' + f'{line_ctx}\n{info}' +
-                      '\x1b[0m', file=sys.stderr)
+                print(f'\x1b[2m{info}\x1b[0m', file=sys.stderr)
             elif style == 'warn':
-                print('\x1b[33m' + f'{line_ctx}\n{info}' +
-                      '\x1b[0m', file=sys.stderr)
+                print(f'\x1b[33m{info}\x1b[0m', file=sys.stderr)
             elif style == 'error':
-                print('\x1b[35m' + f'{line_ctx}\n{info}' +
-                      '\x1b[0m', file=sys.stderr)
+                print(f'\x1b[35m{info}\x1b[0m', file=sys.stderr)
             elif style == 'hint':
-                print('\x1b[2m' + f'{line_ctx}\n{info}' +
-                      '\x1b[0m', file=sys.stderr)
+                print(f'\x1b[2m{info}\x1b[0m', file=sys.stderr)
             else:
                 raise ValueError(
                     f'Expected \'{style}\' to be one of log, warn, error, hint.')
         else:
-            print(f'{line_ctx}\n{info}', file=sys.stderr)
+            print(info, file=sys.stderr)
 
 
 _sane = _Sane.get()
