@@ -1,4 +1,3 @@
-
 '''Sane, Makefile for humans.
 
 Copyright 2023 Miguel Murça
@@ -74,15 +73,15 @@ class _Sane:
 
     def initialize_properties(self):
         self.run_main = True
+        self.finalized = False
         self.default = None
         self.cmds = {}
         self.tasks = {}
-        self.quid = {}
-        self.graph = None
-        self.graph_map = None
-        self.args_edges = None
+        self.tags = {}
         self.ignore_when = False
         self.operation = {}
+        self.incidence = {}
+        self.jobs = 1
 
     def setup_logging(self):
         self.verbose = False
@@ -97,10 +96,10 @@ class _Sane:
             cmd_arg_limit = args.index('--')
             if cmd_arg_limit == len(args):
                 self.usage_error()
-            sane_args = set(args[:cmd_arg_limit])
+            sane_args = list(args[:cmd_arg_limit])
             cmd_args = tuple(args[cmd_arg_limit + 1:])
         else:
-            sane_args = set(args)
+            sane_args = list(args)
             cmd_args = None
 
         if '--help' in sane_args or '-h' in sane_args:
@@ -108,12 +107,13 @@ class _Sane:
             self.run_main = False
             sys.exit(0)
 
+        if '--no-color' in sane_args and '--color' in sane_args:
+            self.usage_error()
+            sys.exit(1)
+
         if '--verbose' in sane_args:
             sane_args.remove('--verbose')
             self.verbose = True
-        if '--no-color' in sane_args and '--color' in sane_args:
-            print(self.get_short_usage(), file=sys.stderr)
-            sys.exit(1)
         if '--no-color' in sane_args:
             sane_args.remove('--no-color')
             self.color = False
@@ -124,17 +124,30 @@ class _Sane:
             sane_args.remove('--ignore-when')
             self.ignore_when = True
 
-        if len(sane_args) != 1:
-            self.usage_error()
-
         if '--list' in sane_args:
-            if cmd_args is not None:
+            if cmd_args is not None or len(sane_args) != 1:
                 self.usage_error()
             self.operation = {'mode': 'list'}
         else:
-            cmd = sane_args.pop()
-            if cmd.startswith('-'):
-                self.usage_error()
+            jobs = self.get_keyword_value(sane_args, '--jobs')
+            if jobs is not None:
+                try:
+                    self.jobs = int(jobs)
+                except ValueError:
+                    self.error('--jobs must be a number.')
+                    self.usage_error()
+            
+            if len(sane_args) > 0:
+                if len(sane_args) != 1:
+                    self.usage_error()
+                cmd = sane_args.pop()
+                if cmd.startswith('-'):
+                    self.usage_error()
+            else:
+                cmd = None
+
+            if cmd_args is None:
+                cmd_args = ()
 
             self.operation = {
                 'mode': 'cmd',
@@ -142,16 +155,30 @@ class _Sane:
                 'args': cmd_args,
             }
 
+    def get_keyword_value(self, args, name):
+        for i in range(len(args)):
+            arg = args[i]
+            if arg.startswith(name):
+                remaining = arg.removeprefix(name)
+                if remaining.startswith('='):
+                    args.remove(arg)
+                    return remaining.removeprefix('=')
+                elif len(remaining) == 0:
+                    if i < len(args) - 1:
+                        value = args[i+1]
+                        args.remove(arg)
+                        args.remove(value)
+                        return value
+
     def usage_error(self):
         print(self.get_short_usage(), file=sys.stderr)
         sys.exit(1)
-
 
     def get_short_usage(self):
         main = self.get_main_name()
         return (f'Usage: {main} --version\n'
                 f'       {main} [--no-color | --color] --list\n'
-                f'       {main} [--no-color | --color] [--verbose] [--ignore-when] [cmd [-- ...args]]')
+                f'       {main} [--no-color | --color] [--verbose] [--ignore-when] [--jobs=<n>] [cmd] [-- ...args]')
 
     def get_long_usage(self):
         return ('Sane, Make for humans.\n'
@@ -162,6 +189,7 @@ class _Sane:
                 '  --color        Enables ANSI color codes even in non-console terminals.\n'
                 '  --no-color     Disable ANSI color codes in the output.\n'
                 '  --ignore-when  Ignore @when attributes when running @tasks and @cmds.\n'
+                '  --jobs         Maximum number of tasks to perform concurrently.\n'
                 '\n'
                 'Arguments given after \'--\' are passed to the provided @cmd.\n'
                 'If no command is given, the @default @cmd is ran, if it exists.')
@@ -201,7 +229,7 @@ class _Sane:
         if len(args) > 1 or len(kwargs) > 0:
             self.error('@cmd does not take arguments.')
             self.show_context(context, 'error')
-            self.hint('(To specify other properties, use @quid or @depends.)')
+            self.hint('(To specify other properties, use @tag or @depends.)')
             sys.exit(1)
         elif len(args) == 0:
             self.error('@cmd does not have parentheses.')
@@ -216,13 +244,13 @@ class _Sane:
             sys.exit(1)
 
         self.ensure_positional_args_only(context, func)
-        
+
         if not hasattr(func, '__name__'):
             self.error('A @cmd must have a name.')
             self.show_context(context, 'error')
             self.hint('(Use a @task instead.)')
             sys.exit(1)
-        
+
         if func.__name__ in self.cmds:
             other_, other_context = self.cmds[func.__name__]
             self.error('@cmd names must be unique.')
@@ -242,8 +270,14 @@ class _Sane:
         props['context'] = context
 
         def cmd(*args, **kwargs):
-            # TODO: Run the tree, not just the function.
-            return func(*args, **kwargs)
+            if not self.finalized:
+                context = _Sane.get_context()
+                self.warn('Calling a @cmd from outside other @cmds or @tasks '
+                          'ignores @depends and @when.')
+                self.show_context(context, 'warn')
+                return func(*args)
+            else:
+                return self.run_tree(func, args)
 
         cmd.__dict__['__sane__'] = {'type': 'wrapper', 'inner': func}
         self.cmds[func.__name__] = func
@@ -255,7 +289,7 @@ class _Sane:
         if len(args) > 1 or len(kwargs) > 0:
             self.error('@task does not take arguments.')
             self.show_context(context, 'error')
-            self.hint('(To specify other properties, use @quid or @depends.)')
+            self.hint('(To specify other properties, use @tag or @depends.)')
             sys.exit(1)
         elif len(args) == 0:
             self.error('@task does not have parentheses.')
@@ -282,8 +316,14 @@ class _Sane:
         props['context'] = context
 
         def task():
-            # TODO: Run the tree, not just the function
-            return func()
+            if not self.finalized:
+                context = _Sane.get_context()
+                self.warn('Calling a @task from outside other @cmds or @tasks '
+                          'ignores @depends and @when.')
+                self.show_context(context, 'warn')
+                return func()
+            else:
+                return self.run_tree(func, ())
 
         task.__dict__['__sane__'] = {'type': 'wrapper', 'inner': func}
         self.tasks.setdefault(func.__name__, []).append(func)
@@ -295,13 +335,13 @@ class _Sane:
         if len(pargs) > 0:
             self.error('@depends takes keyword arguments only.')
             self.show_context(context, 'error')
-            self.hint('(Use on_quid=, on_cmd=, or on_task=.)')
+            self.hint('(Use on_tag=, on_cmd=, or on_task=.)')
 
-        given = list(arg for arg in ('on_quid', 'on_cmd',
+        given = list(arg for arg in ('on_tag', 'on_cmd',
                      'on_task') if arg in args.keys())
         if len(given) != 1:
             self.error(
-                '@depends must take a single on_quid=, on_cmd=, or on_task=.')
+                '@depends must take a single on_tag=, on_cmd=, or on_task=.')
             self.show_context(context, 'error')
             self.hint('(If you wish to have multiple dependencies, '
                       'use multiple @depends decorators.)')
@@ -314,8 +354,8 @@ class _Sane:
                 self.show_context(context, 'error')
                 sys.exit(1)
 
-            if given == 'on_quid':
-                return self.depends_on_quid(context, func, **args)
+            if given == 'on_tag':
+                return self.depends_on_tag(context, func, **args)
             elif given == 'on_cmd':
                 return self.depends_on_cmd(context, func, **args)
             else:
@@ -323,40 +363,46 @@ class _Sane:
 
         return specific_decorator
 
-    def depends_on_quid(self, context, func, **args):
+    def depends_on_tag(self, context, func, **args):
         if len(args) != 1:
-            self.error('@depends(on_quid=...) does not take other arguments.')
+            self.error('@depends(on_tag=...) does not take other arguments.')
             self.show_context(context)
             sys.exit(1)
 
-        quid = []
-        arg = args['on_quid']
+        tag = []
+        arg = args['on_tag']
         if type(arg) is str:
-            quid.append(_Sane.Depends(arg, context))
+            tag.append(_Sane.Depends(arg, context))
         elif hasattr(arg, '__iter__'):
             if type(arg) not in (tuple, list, set):
-                self.warn('on_quid= argument is not a collection, although it is iterable. '
-                          'The elements in this iterator will still be considered, '
-                          'but exhaustion of the iterator may produce unexpected results.')
+                if type(arg) is dict:
+                    self.warn('on_tag= argument is a dictionary, which, although iterable, '
+                              'is ambiguous, since only the values (and not the keys) will '
+                              'be considered. The values will still be considered, but '
+                              'this may be unexpected.')
+                else:
+                    self.warn('on_tag= argument is not a collection, although it is iterable. '
+                              'The elements in this iterator will still be considered, '
+                              'but exhaustion of the iterator may produce unexpected results.')
                 self.show_context(context, 'warn')
                 self.hint(
                     '(To silence this warning, convert the argument to a collection type.)')
 
             for element in arg:
                 if type(element) is str:
-                    quid.append(_Sane.Depends(element, context))
+                    tag.append(_Sane.Depends(element, context))
                 else:
-                    self.error('on_quid= argument must be iterable of string.')
+                    self.error('on_tag= argument must be iterable of string.')
                     self.show_context(context, 'error')
                     sys.exit(1)
         else:
             self.error(
-                'on_quid= argument must be string or iterable of string.')
+                'on_tag= argument must be string or iterable of string.')
             self.show_context(context, 'error')
             sys.exit(1)
 
         props = self.get_props(func)
-        props['depends']['quid'].extend(quid)
+        props['depends']['tag'].extend(tag)
 
         return func
 
@@ -373,6 +419,31 @@ class _Sane:
             sys.exit(1)
 
         cmd = args['on_cmd']
+        args = args['args']
+
+        if type(args) not in (tuple, list):
+            if type(args) is str:
+                self.error('The args= argument must be a tuple or list.')
+                self.show_context(context, 'error')
+                self.hint(f'Write args=["{args}"] instead.')
+            elif hasattr(args, '__iter__'):
+                if type(args) is dict:
+                    self.warn('The args= argument is a dictionary, which, although iterable, '
+                              'is ambiguous, since only the values (and not the keys) will '
+                              'be considered. The values will still be considered, but '
+                              'this may be unexpected.')
+                else:
+                    self.warn('The args= argument is not a collection, although it is iterable. '
+                              'The elements in this iterator will still be considered, '
+                              'but exhaustion of the iterator may produce unexpected results.')
+                self.show_context(context, 'warn')
+                self.hint(
+                    '(To silence this warning, convert the argument to a collection type.)')
+                args = list(args)
+            else:
+                self.error('The args= argument must be a tuple or list.')
+                self.show_context(context, 'error')
+
         if type(cmd) is not str:
             if hasattr(cmd, '__call__'):
                 if not hasattr(cmd, '__sane__'):
@@ -399,7 +470,7 @@ class _Sane:
 
         props = self.get_props(func)
         props['depends']['cmd'].append(
-            _Sane.Depends((cmd, args['args']), context))
+            _Sane.Depends((cmd, args), context))
 
         # Resolution of `cmd` and validation of `args` happens at graph build stage.
 
@@ -418,6 +489,7 @@ class _Sane:
                 sys.exit(1)
 
         task = args['on_task']
+
         if type(task) is not str:
             if hasattr(task, '__call__'):
                 if not hasattr(task, '__sane__'):
@@ -449,31 +521,31 @@ class _Sane:
 
         return func
 
-    def quid_decorator(self, *args, **kwargs):
+    def tag_decorator(self, *args, **kwargs):
         context = _Sane.get_context()
 
         invalid_args = (len(kwargs) > 0 or
                         len(args) > 1)
         if invalid_args:
-            self.error('@quid takes a single positional argument.')
+            self.error('@tag takes a single positional argument.')
             self.show_context(context, 'error')
-            self.hint('(For example, @quid(\'quo\').)')
+            self.hint('(For example, @tag(\'quo\').)')
             sys.exit(1)
 
-        quid = args[0]
-        if type(quid) is not str:
-            self.error('@quid must be a string.')
+        tag = args[0]
+        if type(tag) is not str:
+            self.error('@tag must be a string.')
             self.show_context(context, 'error')
-            self.hint('(For example, @quid(\'quo\').)')
+            self.hint('(For example, @tag(\'quo\').)')
             sys.exit(1)
 
         def specific_decorator(func):
             if self.is_task_or_cmd(func):
-                self.error('@quid cannot come before @cmd or @task.')
+                self.error('@tag cannot come before @cmd or @task.')
                 self.show_context(context, 'error')
                 sys.exit(1)
             props = self.get_props(func)
-            self.quid.setdefault(quid, []).append(func)
+            self.tags.setdefault(tag, []).append(func)
             return func
 
         return specific_decorator
@@ -515,7 +587,7 @@ class _Sane:
         if len(args) > 1 or len(kwargs) > 0:
             self.error('@default does not take arguments.')
             self.show_context(context, 'error')
-            self.hint('(To specify other properties, use @quid or @depends.)')
+            self.hint('(To specify other properties, use @tag or @depends.)')
             sys.exit(1)
         elif len(args) == 0:
             self.error('@default does not have parentheses.')
@@ -565,6 +637,7 @@ class _Sane:
         if self.exit_code or not self.run_main:
             return
         self.run_main = False
+        self.finalized = True
 
         try:
             op_mode = self.operation['mode']
@@ -573,8 +646,23 @@ class _Sane:
             elif op_mode == 'cmd':
                 cmd = self.operation['cmd']
                 args = self.operation['args']
-                self.build_graph(root)
-                # TODO
+
+                if cmd is None:
+                    if self.default is None:
+                        self.error(
+                            'No @cmd given, and no @default @cmd exists.')
+                        self.hint(
+                            '(Add @default to a @cmd to run it when no @cmd is specified.)')
+                        sys.exit(1)
+                    cmd = self.default.func
+                else:
+                    if cmd not in self.cmds:
+                        self.error(f'No @cmd named {cmd}.')
+                        self.hint('(Use --list to see all available @cmds.)')
+                        sys.exit(1)
+                    cmd = self.cmds[cmd]
+
+                self.run_tree(cmd, args)
             else:
                 raise ValueError(op_mode)
         except SystemExit as sys_exit:
@@ -583,14 +671,11 @@ class _Sane:
             # See https://github.com/python/cpython/issues/103512
             # os._exit ignores other handlers and does not flush buffers.
             os._exit(sys_exit.code)
-    
-    def launch_cmd_tree(self, cmd):
-        pass
-    
+
     def list_cmds(self):
         for cmd_name, cmd in self.cmds.items():
             self.color_print(f'\x1b[1m{cmd_name}\x1b[0m', end='')
-            
+
             if self.verbose:
                 cmd_args = inspect.signature(cmd).parameters.keys()
                 if len(cmd_args) > 0:
@@ -608,54 +693,76 @@ class _Sane:
             else:
                 self.color_print('\n', end='')
 
-    def build_graph(self, root):
-        graph = []
-        graph_map = {}
-        args_edges = {}
-        stack = []
+    def run_tree(self, func, args):
+        self.update_graph(func, args)
+        toposort = self.toposort(func, args)
+        for slice_ in toposort[:-1]:
+            # TODO: When
+            pass
 
-        stack.append(('visit', root))
-
+    def update_graph(self, func, args):
+        visiting = set()
+        stack = [('visit', (func, args))]
         while len(stack) > 0:
-            op, node = stack.pop()
-            type_ = node.__sane__['type']
-            state = node.__sane__.setdefault('graph', 'unmarked')
-            if op == 'seal':
-                node.__sane__['graph'] = 'permanent'
-                graph.append(node)
-                graph_map[node] = len(graph) - 1
-            elif op == 'visit':
-                if state == 'permanent':
-                    continue
-                if state == 'temporary':
-                    self.report_loop(stack)
+            op, item = stack.pop()
+            func, args = item
+            if op == 'visit':
+                if item in visiting:
+                    trace = self.get_trace(stack)
+                    self.report_loop(trace)
+                
+                visiting.add(item)
+                stack.append(('seal', item))
 
-                self.resolve_depends(node)
-                depends = node.__sane__['depends']
-                node.__sane__['graph'] = 'temporary'
-
-                stack.append(('seal', node))
-                for quid in depends['quid']:
-                    quid, context = quid
-                    for element in self.quid.setdefault(quid, []):
-                        stack.append(('visit', element))
-                for cmd in depends['cmd']:
-                    cmd_args, _context = cmd
-                    cmd, args = cmd_args
-                    args_edges[(node, cmd)] = cmd_args
-                    stack.append(('visit', cmd))
-                for task in depends['task']:
-                    task, _context = task
-                    stack.append(('visit', task))
+                props = self.get_props(func)
+                self.resolve_depends(props)
+                for cmd_item, _context in props['depends']['cmd']:
+                    if cmd_item in self.incidence:
+                        self.incidence[cmd_item] += 1
+                    else:
+                        stack.append(('visit', cmd_item))
+                        self.incidence[cmd_item] = 1
+                for task, _context in props['depends']['task']:
+                    task_item = (task, ())
+                    if task_item in self.incidence:
+                        self.incidence[task_item] += 1
+                    else:
+                        stack.append(('visit', task_item))
+                        self.incidence[task_item] = 1
+            elif op == 'seal':
+                visiting.remove(item)
             else:
-                raise ValueError()
+                raise ValueError(op)
 
-        self.graph = graph
-        self.graph_map = graph_map
-        self.args_edges = args_edges
+    def toposort(self, func, args):
+        toposort = []
 
-    def resolve_depends(self, func):
-        props = self.get_props(func)
+        roots = [(func, args)]
+        incidence = self.incidence.copy()
+
+        while len(roots) > 0:
+            toposort.append(roots)
+            next_roots = []
+            for func, args in roots:
+                props = self.get_props(func)
+                for cmd_item, _context in props['depends']['cmd']:
+                    incidence[cmd_item] -= 1
+                    if incidence[cmd_item] == 0:
+                        next_roots.append(cmd_item)
+                for task, _context in props['depends']['task']:
+                    task_item = (task, ())
+                    incidence[task_item] -= 1
+                    if incidence[task_item] == 0:
+                        next_roots.append(task_item)
+            roots = next_roots
+
+        toposort.reverse()
+        return toposort
+
+    def resolve_depends(self, props):
+        if props['depends']['resolved']:
+            return
+
         for i in range(len(props['depends']['task'])):
             task_depends, context = props['depends']['task'][i]
             if type(task_depends) is str:
@@ -674,7 +781,7 @@ class _Sane:
                     self.hint(
                         '(You can reference a function directly, instead of a string.)')
                     self.hint(
-                        '(Alternatively, use @quid, and @depends(on_quid=...).)')
+                        '(Alternatively, use @tag, and @depends(on_tag=...).)')
                     sys.exit(1)
                 resolved = self.tasks[task_depends][0]
                 props['depends']['task'][i] = (resolved, context)
@@ -693,40 +800,54 @@ class _Sane:
                     sys.exit(1)
 
                 resolved = self.cmds[cmd_depends]
-
-                signature = inspect.signature(resolved)
-                mandatory_arg_count = 0
-                optional_arg_count = 0
-                for arg in signature.parameters.values():
-                    if arg.default is inspect.Parameter.empty:
-                        mandatory_arg_count += 1
-                    else:
-                        optional_arg_count += 1
-                wrong_number_of_args = (len(cmd_args) < mandatory_arg_count or
-                                        len(cmd_args) > mandatory_arg_count + optional_arg_count)
-                if wrong_number_of_args:
-                    self.error(
-                        'Arguments given in @depends are incompatible with the function signature.')
-                    self.show_context(context, 'error')
-                    sys.exit(1)
-
+                self.ensure_signature_compatible(resolved, cmd_args, context)
                 props['depends']['cmd'][i] = ((resolved, cmd_args), context)
 
-    def report_loop(self, stack):
+        props['depends']['resolved'] = True
+
+    def ensure_signature_compatible(self, func, args, context):
+        signature = inspect.signature(func)
+        mandatory_arg_count = 0
+        optional_arg_count = 0
+        for arg in signature.parameters.values():
+            if arg.default is inspect.Parameter.empty:
+                mandatory_arg_count += 1
+            else:
+                optional_arg_count += 1
+        wrong_number_of_args = (len(args) < mandatory_arg_count or
+                                len(args) > mandatory_arg_count + optional_arg_count)
+        if wrong_number_of_args:
+            self.error(
+                'Arguments given in @depends are incompatible with the function signature.')
+            self.show_context(context, 'error')
+            sys.exit(1)
+
+    def get_trace(self, stack):
+        trace = []
+        while len(stack) > 0:
+            op, item = stack.pop()
+            if op != 'seal':
+                continue
+            trace.append(item)
+        return trace
+
+    def report_loop(self, trace):
         lines = ['Dependency loop.\n']
-        for element in reversed(stack):
-            op_, node = element
-            name = node.__name__
-            context = node.__sane__['context']
-            lines.append(f'* {name}\n')
+        for element in reversed(trace):
+            func, args = element
+            name = func.__name__
+            str_args = ', '.join(str(arg) for arg in args)
+            context = func.__sane__['context']
+            lines.append(f'* {name}({str_args})\n')
             for line in self.format_context(context).splitlines():
-                lines.append('| ' + line + '\n')
+                lines.append(f'| {line}\n')
             lines.append('|\n')
 
-        loop_op_, loop_node = stack[-1]
-        loop_name = loop_node.__name__
-        loop_context = node.__sane__['context']
-        lines.append(f'* {loop_name}')
+        loop_func, loop_args = trace[-1]
+        loop_str_args = ', '.join(str(arg) for arg in args)
+        loop_name = loop_func.__name__
+        loop_context = func.__sane__['context']
+        lines.append(f'* {loop_name}({loop_str_args})')
 
         self.error(''.join(lines))
         sys.exit(1)
@@ -762,10 +883,11 @@ class _Sane:
                 'when': None,
                 'depends': {
                     'resolved': False,
-                    'quid': [],
+                    'tag': [],
                     'cmd': [],
                     'task': [],
-                }
+                },
+                'incidence': None,
             }
 
         return func.__dict__['__sane__']
@@ -834,7 +956,7 @@ _sane = _Sane.get()
 cmd = _sane.cmd_decorator
 task = _sane.task_decorator
 depends = _sane.depends_decorator
-quid = _sane.quid_decorator
+tag = _sane.tag_decorator
 when = _sane.when_decorator
 default = _sane.default_decorator
 
