@@ -78,7 +78,6 @@ class _Sane:
         self.cmds = {}
         self.tasks = {}
         self.tags = {}
-        self.ignore_when = False
         self.operation = {}
         self.incidence = {}
         self.jobs = 1
@@ -120,9 +119,6 @@ class _Sane:
         if '--color' in sane_args:
             sane_args.remove('--color')
             self.color = True
-        if '--ignore-when' in sane_args:
-            sane_args.remove('--ignore-when')
-            self.ignore_when = True
 
         if '--list' in sane_args:
             if cmd_args is not None or len(sane_args) != 1:
@@ -180,18 +176,19 @@ class _Sane:
         main = self.get_main_name()
         return (f'Usage: {main} --version\n'
                 f'       {main} [--no-color | --color] --list\n'
-                f'       {main} [--no-color | --color] [--verbose] [--ignore-when] [--jobs=<n>] [cmd] [-- ...args]')
+                f'       {main} [--no-color | --color] [--verbose] [--jobs=<n>] [cmd] [-- ...args]')
 
     def get_long_usage(self):
         return ('Sane, Make for humans.\n'
                 f'{self.get_short_usage()}\n\n'
                 'Options:\n'
                 '  --version      Print the current sane version.\n'
-                '  --verbose      Show verbose logs.\n'
-                '  --color        Enables ANSI color codes even in non-console terminals.\n'
+                '  --verbose      Produce verbose output.\n'
+                '  --color        Enable ANSI color codes even in non-console terminals.\n'
                 '  --no-color     Disable ANSI color codes in the output.\n'
-                '  --ignore-when  Ignore @when attributes when running @tasks and @cmds.\n'
-                '  --jobs         Maximum number of tasks to perform concurrently.\n'
+                '  --jobs=<n>     Perform (at most) \'n\' tasks concurrently.\n'
+                '                 If suppressed, tasks are evaluated serially.\n'
+                '                 Passing \'0\' runs any number of tasks concurrently.'
                 '\n'
                 'Arguments given after \'--\' are passed to the provided @cmd.\n'
                 'If no command is given, the @default @cmd is ran, if it exists.')
@@ -264,8 +261,8 @@ class _Sane:
         def cmd(*args, **kwargs):
             if not self.finalized:
                 context = _Sane.get_context()
-                self.warn('Calling a @cmd from outside other @cmds or @tasks '
-                          'ignores @depends and @when.')
+                self.warn('Calling a @cmd from outside other '
+                          '@cmds or @tasks ignores @depends.')
                 self.show_context(context, 'warn')
                 return func(*args)
             else:
@@ -315,8 +312,8 @@ class _Sane:
         def task():
             if not self.finalized:
                 context = _Sane.get_context()
-                self.warn('Calling a @task from outside other @cmds or @tasks '
-                          'ignores @depends and @when.')
+                self.warn('Calling a @task from outside other '
+                          '@cmds or @tasks ignores @depends.')
                 self.show_context(context, 'warn')
                 return func()
             else:
@@ -545,39 +542,6 @@ class _Sane:
             self.tags.setdefault(tag, []).append(func)
             return func
 
-        return specific_decorator
-
-    def when_decorator(self, *args, **kwargs):
-        context = _Sane.get_context()
-
-        if len(kwargs) > 0 or len(args) != 1:
-            self.error('@when takes a single function, with no arguments.')
-            self.show_context(context, 'error')
-            sys.exit(1)
-
-        condition = args[0]
-
-        if not hasattr(condition, '__call__'):
-            self.error('Argument is not a function.')
-            self.show_context(context, 'error')
-            self.hint('(Use @when(fn), not @when(fn()).)')
-            sys.exit(1)
-
-        def specific_decorator(func):
-            if self.is_task_or_cmd(func):
-                self.error('@when cannot come before @cmd or @task.')
-                self.show_context(context, 'error')
-                sys.exit(1)
-            props = self.get_props(func)
-            if props['when'] is not None:
-                self.error(
-                    'To avoid ambiguity, a @cmd or @task can only have one @when.')
-                self.show_context(context, 'error')
-                self.hint(
-                    '(To define a conjunction, you can use @when(lambda: a() or b() or c()).)')
-                sys.exit(1)
-            props['when'] = condition
-            return func
         return specific_decorator
 
     def default_decorator(self, *args, **kwargs):
@@ -908,7 +872,6 @@ class _Sane:
             func.__dict__['__sane__'] = {
                 'type': None,
                 'context': None,
-                'when': None,
                 'depends': {
                     'resolved': False,
                     'tag': [],
@@ -986,7 +949,6 @@ cmd = _sane.cmd_decorator
 task = _sane.task_decorator
 depends = _sane.depends_decorator
 tag = _sane.tag_decorator
-when = _sane.when_decorator
 default = _sane.default_decorator
 
 if __name__ == '__main__':
