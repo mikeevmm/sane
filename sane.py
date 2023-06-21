@@ -25,8 +25,9 @@ import os
 import sys
 import re
 import inspect
-import atexit
 import builtins
+import atexit
+import concurrent.futures
 from typing import Literal
 from collections import namedtuple
 
@@ -69,10 +70,9 @@ class _Sane:
         self.initialize_properties()
         self.setup_logging()
         self.read_arguments()
-        self.run_on_exit()
+        self.check_on_exit()
 
     def initialize_properties(self):
-        self.run_main = True
         self.finalized = False
         self.default = None
         self.cmds = {}
@@ -133,10 +133,12 @@ class _Sane:
             if jobs is not None:
                 try:
                     self.jobs = int(jobs)
+                    if self.jobs == 0:
+                        self.jobs = None
                 except ValueError:
                     self.error('--jobs must be a number.')
                     self.usage_error()
-            
+
             if len(sane_args) > 0:
                 if len(sane_args) != 1:
                     self.usage_error()
@@ -201,30 +203,20 @@ class _Sane:
         else:
             return 'script'
 
-    def run_on_exit(self):
-        self.exit_code = 0
-
-        _sys_excepthook = sys.excepthook
-
-        def save_and_except(type, value, traceback):
-            self.exit_code = 1
-            if _sys_excepthook:
-                _sys_excepthook(type, value, traceback)
-        sys.excepthook = save_and_except
-
-        def save_and_exit(wraps):
-            def _exit(code=0):
-                self.exit_code = code
-                return wraps(code)
-            return _exit
-        _sys_exit = sys.exit
-        _builtins_exit = builtins.exit
-        sys.exit = save_and_exit(_sys_exit)
-        builtins.exit = save_and_exit(_builtins_exit)
-        atexit.register(self.main)
+    def check_on_exit(self):
+        def check_if_finalized():
+            if not self.finalized:
+                self.warn('Sane was never ran!')
+                self.hint('(Are you missing a sane() call?)')
+        atexit.register(check_if_finalized)
 
     def cmd_decorator(self, *args, **kwargs):
         context = _Sane.get_context()
+
+        if self.finalized:
+            self.error('@cmd cannot appear after sane().')
+            self.show_context(context)
+            self.hint('(Move sane() to the end of the file.)')
 
         if len(args) > 1 or len(kwargs) > 0:
             self.error('@cmd does not take arguments.')
@@ -285,6 +277,11 @@ class _Sane:
 
     def task_decorator(self, *args, **kwargs):
         context = _Sane.get_context()
+
+        if self.finalized:
+            self.error('@task cannot appear after sane().')
+            self.show_context(context)
+            self.hint('(Move sane() to the end of the file.)')
 
         if len(args) > 1 or len(kwargs) > 0:
             self.error('@task does not take arguments.')
@@ -634,71 +631,95 @@ class _Sane:
         return func
 
     def main(self):
-        if self.exit_code or not self.run_main:
+        if self.finalized:
             return
-        self.run_main = False
         self.finalized = True
 
-        try:
-            op_mode = self.operation['mode']
-            if op_mode == 'list':
-                self.list_cmds()
-            elif op_mode == 'cmd':
-                cmd = self.operation['cmd']
-                args = self.operation['args']
+        op_mode = self.operation['mode']
+        if op_mode == 'list':
+            self.list_cmds()
+        elif op_mode == 'cmd':
+            cmd = self.operation['cmd']
+            args = self.operation['args']
 
-                if cmd is None:
-                    if self.default is None:
-                        self.error(
-                            'No @cmd given, and no @default @cmd exists.')
-                        self.hint(
-                            '(Add @default to a @cmd to run it when no @cmd is specified.)')
-                        sys.exit(1)
-                    cmd = self.default.func
-                else:
-                    if cmd not in self.cmds:
-                        self.error(f'No @cmd named {cmd}.')
-                        self.hint('(Use --list to see all available @cmds.)')
-                        sys.exit(1)
-                    cmd = self.cmds[cmd]
-
-                self.run_tree(cmd, args)
+            if cmd is None:
+                if self.default is None:
+                    self.error(
+                        'No @cmd given, and no @default @cmd exists.')
+                    self.hint(
+                        '(Add @default to a @cmd to run it when no @cmd is specified.)')
+                    sys.exit(1)
+                cmd = self.default.func
             else:
-                raise ValueError(op_mode)
-        except SystemExit as sys_exit:
-            # TODO: Change exit code and exit cleanly.
-            # This is currently apparently not possible.
-            # See https://github.com/python/cpython/issues/103512
-            # os._exit ignores other handlers and does not flush buffers.
-            os._exit(sys_exit.code)
+                if cmd not in self.cmds:
+                    self.error(f'No @cmd named {cmd}.')
+                    self.hint('(Use --list to see all available @cmds.)')
+                    sys.exit(1)
+                cmd = self.cmds[cmd]
+
+            self.run_tree(cmd, args)
+        else:
+            raise ValueError(op_mode)
 
     def list_cmds(self):
         for cmd_name, cmd in self.cmds.items():
-            self.color_print(f'\x1b[1m{cmd_name}\x1b[0m', end='')
+            self.print(f'\x1b[1m{cmd_name}\x1b[0m', end='')
 
             if self.verbose:
                 cmd_args = inspect.signature(cmd).parameters.keys()
                 if len(cmd_args) > 0:
                     comma_sep_args = ', '.join(cmd_args)
-                    self.color_print(f'\x1b[2m({comma_sep_args})\x1b[0m')
+                    self.print(f'\x1b[2m({comma_sep_args})\x1b[0m')
                 else:
-                    self.color_print('\n  \x1b[2m(No arguments.)\x1b[0m')
+                    self.print('\n  \x1b[2m(No arguments.)\x1b[0m')
 
                 if hasattr(cmd, '__doc__') and cmd.__doc__:
                     doc = cmd.__doc__
                     for line in doc.splitlines():
-                        self.color_print(f'\x1b[2m  {line}\x1b[0m')
+                        self.print(f'\x1b[2m  {line}\x1b[0m')
                 else:
-                    self.color_print('  \x1b[2mNo information given.\x1b[0m')
+                    self.print('  \x1b[2mNo information given.\x1b[0m')
             else:
-                self.color_print('\n', end='')
+                self.print('\n', end='')
 
     def run_tree(self, func, args):
         self.update_graph(func, args)
-        toposort = self.toposort(func, args)
+        toposort = self.get_toposort(func, args)
         for slice_ in toposort[:-1]:
-            # TODO: When
-            pass
+            if self.jobs == 1:
+                for func, args in slice_:
+                    if self.verbose:
+                        str_func = self.get_name(func)
+                        str_args = ', '.join(str(x) for x in args)
+                        self.log(f'Running {str_func}({str_args})')
+                    func.__call__(*args)
+            else:
+                if self.verbose:
+                    str_jobs = []
+                    for func, args in slice_:
+                        str_func = self.get_name(func)
+                        str_args = ', '.join(str(x) for x in args)
+                        str_jobs.append(f'{str_func}({str_args})')
+                    if len(str_jobs) > 1:
+                        str_jobs = ', '.join(str_jobs[:-1]) + ', and ' + str_jobs[-1]
+                        self.log(f'Simultaneously running {str_jobs}.')
+                    else:
+                        str_jobs = str_jobs[0]
+                        self.log(f'Running {str_jobs}.')
+
+                with concurrent.futures.ThreadPoolExecutor(max_workers=self.jobs) as exe:
+                    futures = ((exe.submit(func, *args), func)
+                               for func, args in slice_)
+                    for future, func in futures:
+                        future.result()
+
+        if self.verbose:
+            str_func = self.get_name(func)
+            str_args = ', '.join(str(x) for x in args)
+            self.log(f'Running {str_func}({str_args})')
+
+        func, args = toposort[-1][0]
+        return func.__call__(*args)
 
     def update_graph(self, func, args):
         visiting = set()
@@ -710,7 +731,7 @@ class _Sane:
                 if item in visiting:
                     trace = self.get_trace(stack)
                     self.report_loop(trace)
-                
+
                 visiting.add(item)
                 stack.append(('seal', item))
 
@@ -734,7 +755,7 @@ class _Sane:
             else:
                 raise ValueError(op)
 
-    def toposort(self, func, args):
+    def get_toposort(self, func, args):
         toposort = []
 
         roots = [(func, args)]
@@ -835,7 +856,7 @@ class _Sane:
         lines = ['Dependency loop.\n']
         for element in reversed(trace):
             func, args = element
-            name = func.__name__
+            name = self.get_name(func)
             str_args = ', '.join(str(arg) for arg in args)
             context = func.__sane__['context']
             lines.append(f'* {name}({str_args})\n')
@@ -845,12 +866,19 @@ class _Sane:
 
         loop_func, loop_args = trace[-1]
         loop_str_args = ', '.join(str(arg) for arg in args)
-        loop_name = loop_func.__name__
+        loop_name = self.get_name(loop_func)
         loop_context = func.__sane__['context']
         lines.append(f'* {loop_name}({loop_str_args})')
 
         self.error(''.join(lines))
         sys.exit(1)
+    
+    def get_name(self, func):
+        if hasattr(func, '__name__'):
+            return func.__name__
+        else:
+            assert func.__sane__['type'] == 'task'
+            return f'(Anonymous Task @ {hex(id(func))})'
 
     def is_task_or_cmd(self, func):
         props = self.get_props(func)
@@ -892,7 +920,7 @@ class _Sane:
 
         return func.__dict__['__sane__']
 
-    def color_print(self, *args, **kwargs):
+    def print(self, *args, **kwargs):
         if self.color:
             print(*args, **kwargs)
         else:
@@ -953,6 +981,7 @@ class _Sane:
 
 
 _sane = _Sane.get()
+sane = _sane.main
 cmd = _sane.cmd_decorator
 task = _sane.task_decorator
 depends = _sane.depends_decorator
