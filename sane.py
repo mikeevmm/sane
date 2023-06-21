@@ -30,6 +30,7 @@ import builtins
 import atexit
 import textwrap
 import concurrent.futures.thread
+from concurrent.futures import ThreadPoolExecutor
 from typing import Literal
 from collections import namedtuple
 
@@ -55,8 +56,10 @@ class _Sane:
         stack = inspect.stack(context=4)
         for element in stack:
             if element.frame.f_globals['__name__'] != __name__:
-                context = _Sane.Context(
-                    element.filename, element.lineno, element.code_context, element.index)
+                context = _Sane.Context(element.filename,
+                                        element.lineno,
+                                        element.code_context,
+                                        element.index)
                 stack.clear()
                 return context
 
@@ -83,6 +86,7 @@ class _Sane:
         self.operation = {}
         self.incidence = {}
         self._thread_exe = None
+        self.script_name = self.get_script_name()
 
     def setup_logging(self):
         self.verbose = False
@@ -90,6 +94,13 @@ class _Sane:
             self.color = False
         else:
             self.color = True
+
+    def get_script_name(self):
+        main = sys.modules['__main__']
+        if hasattr(main, '__file__'):
+            return os.path.basename(main.__file__)
+        else:
+            return 'script'
 
     def read_arguments(self):
         args = sys.argv[1:]
@@ -103,43 +114,36 @@ class _Sane:
             sane_args = list(args)
             cmd_args = None
 
-        if '--help' in sane_args or '-h' in sane_args:
-            print(self.get_long_usage())
-            self.finalized = True
-            sys.exit(0)
+        color = self.get_cmdline_flag(sane_args, '-nc', '--no-color')
+        no_color = self.get_cmdline_flag(sane_args, '-c', '--color')
+        verbose = self.get_cmdline_flag(sane_args, '-v', '--verbose')
+        help_ = self.get_cmdline_flag(sane_args, '-h', '--help')
 
-        if '--no-color' in sane_args and '--color' in sane_args:
+        if color and no_color:
             self.usage_error()
             sys.exit(1)
 
-        if '--verbose' in sane_args:
-            sane_args.remove('--verbose')
+        if verbose:
             self.verbose = True
-        if '--no-color' in sane_args:
-            sane_args.remove('--no-color')
+        if no_color:
             self.color = False
-        if '--color' in sane_args:
-            sane_args.remove('--color')
+        if color:
             self.color = True
+
+        if help_:
+            if verbose:
+                print(inspect.cleandoc(_Sane.MANUAL))
+            else:
+                print(self.get_long_usage())
+            self.finalized = True
+            sys.exit(0)
 
         if '--list' in sane_args:
             if cmd_args is not None or len(sane_args) != 1:
                 self.usage_error()
             self.operation = {'mode': 'list'}
         else:
-            jobs = self.get_keyword_value(sane_args, '--jobs')
-            if jobs is not None:
-                try:
-                    jobs = int(jobs)
-                    if jobs == 1:
-                        self._thread_exe = None
-                    elif jobs == 0:
-                        self._thread_exe = concurrent.futures.ThreadPoolExecutor(max_workers=None)
-                    else:
-                        self._thread_exe = concurrent.futures.ThreadPoolExecutor(max_workers=jobs)
-                except ValueError:
-                    self.error('--jobs must be a number.')
-                    self.usage_error()
+            self.setup_jobs(sane_args)
 
             if len(sane_args) > 0:
                 if len(sane_args) != 1:
@@ -158,12 +162,47 @@ class _Sane:
                 'cmd': cmd,
                 'args': cmd_args,
             }
+    
+    def setup_jobs(self, args):
+        jobs = self.get_cmdline_value(args, '--jobs', '-j')
+        if jobs is not None:
+            try:
+                jobs = int(jobs)
+                if jobs == 1:
+                    self._thread_exe = None
+                elif jobs == 0:
+                    self._thread_exe = ThreadPoolExecutor(max_workers=None)
+                else:
+                    self._thread_exe = ThreadPoolExecutor(max_workers=jobs)
+            except ValueError:
+                self.error('--jobs must be a number.')
+                self.usage_error()
 
-    def get_keyword_value(self, args, name):
+    def get_cmdline_flag(self, args, short, long_):
+        has_short = (short in args)
+        has_long = (long_ in args)
+        if has_short and has_long:
+            self.usage_error()
+        else:
+            is_set = False
+            if has_short:
+                args.remove(short)
+                is_set = True
+            elif has_long:
+                args.remove(long_)
+                is_set = True
+            return is_set
+
+    def get_cmdline_value(self, args, long_, short):
         for i in range(len(args)):
             arg = args[i]
-            if arg.startswith(name):
-                remaining = arg.removeprefix(name)
+            has_long = arg.startswith(long_)
+            has_short = arg.startswith(short)
+            if has_long or has_short:
+                if has_short:
+                    remaining = arg.removeprefix(short)
+                else:
+                    remaining = arg.removeprefix(long_)
                 if remaining.startswith('='):
                     args.remove(arg)
                     return remaining.removeprefix('=')
@@ -180,15 +219,17 @@ class _Sane:
         sys.exit(1)
 
     def get_short_usage(self):
-        main = self.get_main_name()
-        return (f'Usage: {main} --version\n'
-                f'       {main} [--no-color | --color] --list\n'
-                f'       {main} [--no-color | --color] [--verbose] [--jobs=<n>] [cmd] [-- ...args]')
+        script = self.script_name
+        return (f'Usage: {script} [--no-color | --color] [--verbose] --help\n'
+                f'       {script} --version'
+                f'       {script} [--no-color | --color] --list\n'
+                f'       {script} [--no-color | --color] [--verbose] [--jobs=<n>] [cmd] [-- ...args]')
 
     def get_long_usage(self):
         return ('Sane, Make for humans.\n'
                 f'{self.get_short_usage()}\n\n'
                 'Options:\n'
+                '  --help         Show this screen, or the manual if --verbose is set.\n'
                 '  --version      Print the current sane version.\n'
                 '  --verbose      Produce verbose output.\n'
                 '  --color        Enable ANSI color codes even in non-console terminals.\n'
@@ -199,13 +240,10 @@ class _Sane:
                 '\n'
                 'Arguments given after \'--\' are passed to the provided @cmd.\n'
                 'If no command is given, the @default @cmd is ran, if it exists.')
-
-    def get_main_name(self):
-        main = sys.modules['__main__']
-        if hasattr(main, '__file__'):
-            return os.path.basename(main.__file__)
-        else:
-            return 'script'
+    
+    def get_manual(self):
+        return ('# Sane, Makefile for humans.\n'
+                '')
 
     def cmd_decorator(self, *args, **kwargs):
         context = _Sane.get_context()
@@ -611,7 +649,8 @@ class _Sane:
         try:
             self.main()
         except SystemExit as sys_exit:
-            self._thread_exe.shutdown()
+            if self._thread_exe is not None:
+                self._thread_exe.shutdown()
             # TODO: Change exit code and exit cleanly.
             # This is currently apparently not possible.
             # See https://github.com/python/cpython/issues/103512
@@ -636,6 +675,9 @@ class _Sane:
                         'No @cmd given, and no @default @cmd exists.')
                     self.hint(
                         '(Add @default to a @cmd to run it when no @cmd is specified.)')
+                    self.hint(
+                        '(If you need help getting started with sane, run '
+                        f'\'{self.script_name} --verbose --help)\'.')
                     sys.exit(1)
                 cmd = self.default.func
             else:
@@ -646,7 +688,9 @@ class _Sane:
                 cmd = self.cmds[cmd]
 
             self.run_tree(cmd, args)
-        self._thread_exe.shutdown()
+
+        if self._thread_exe is not None:
+            self._thread_exe.shutdown()
 
     def list_cmds(self):
         for cmd_name, cmd in self.cmds.items():
@@ -741,7 +785,7 @@ class _Sane:
     def catch_thread_exception(self, inner):
         def fn(*args, **kwargs):
             try:
-                inner(*args, **kwargs)
+                return inner(*args, **kwargs)
             except RuntimeError as e:
                 lines = textwrap.wrap(
                       'Due to limitations on the magic used to invoke sane, '
