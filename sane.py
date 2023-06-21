@@ -39,6 +39,296 @@ class _Sane:
 
     VERSION = '7.0'
     ANSI = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
+    MANUAL = '''
+        # Sane, Make for humans.
+
+        (Hint: this manual is written in Markdown.
+         Use your favourite terminal markdown renderer for optimal results.)
+
+        ## What is sane?
+
+        Sane is a command runner. It defines a simple interface to declare
+        functions to run, and relationships between those functions. In
+        particular, it lets you define certain functions as requiring other
+        tasks to be completed first. This is not exactly the same as Make, which
+        operates based on files (and not commands), but the principles and goals
+        are very similar.
+        
+        ## How can I get quickly started?
+
+        Place a copy of `sane.py` in a directory, and create a file to define
+        your tasks (I usually go with `make.py`). Then, simply `import sane`.
+
+        ```python
+        # make.py
+        import sane
+        ```
+
+        `make.py` now functions as an interactive script.
+        Call `python make.py --help` for more information, or keep on reading.
+        
+        ## Can you give me an example?
+
+        Sure! The author's favourite dessert, "camel slobber" ([really!][1]),
+        is not just extremely sweet, but very easy to prepare: you only need
+        6 eggs, and a can of cooked condensed milk (which you might know as
+        dulce de leche). You'll want to beat the yolks together with the dulce
+        de leche, and fold that together with the whites beaten to a stiff peak.
+        Then, chill everything and serve.
+
+        We can write some Python to do that:
+
+        ```python
+        # camel_slobber.py
+
+        def crack_eggs():
+            ...
+        
+        def beat_yolks():
+            ...
+        
+        def mix_yolks_and_dulce():
+            ...
+        
+        def beat_whites_to_stiff():
+            ...
+        
+        def fold():
+            ...
+        
+        def chill():
+            ...
+        
+        def serve():
+            ...
+        ```
+        
+        Now, there are some clear dependencies between the functions above: you
+        can't beat the yolks before cracking the eggs, and you definitely can't
+        serve before folding the two mixes together. Sane allows you to express
+        these relationships.
+
+        We start by importing sane:
+
+        ```python
+        # camel_slobber.py
+        import sane
+        
+        def crack_eggs():
+            ...
+        [...]
+        ```
+        
+        This will automatically transform the `camel_slobber.py` file into an
+        interactive script; try it out:
+
+        ```terminal
+        $ python cammel_slobber.py
+        
+        [error] No @cmd given, and no @default @cmd exists.
+        (Add @default to a @cmd to run it when no @cmd is specified.)
+        (If you need help getting started with sane, run 'man.py --verbose --help)'.
+        ```
+        
+        Sane is telling us we need a @default @cmd. @cmds are tasks that we
+        expect the user to want to execute directly, and that can (therefore)
+        take some arguments. You declare a function to be a @cmd by decorating
+        it accordingly:
+
+        ```python
+        # camel_slobber.py
+        import sane
+
+        [...]
+
+        @sane.default
+        @sane.cmd
+        def serve():
+            print("Oooh, ahhh!")
+        ```
+        
+        Naturally, the @default @cmd is the one that's ran if no @cmd is
+        specified by the user. If we now run the script again...
+
+        ```terminal
+        $ python camel_slobber.py
+
+        Ooooh, ahhh!
+        ```
+        
+        Sane executed our @default @cmd! Let's define an alternative @cmd:
+
+        ```python
+        [...]
+
+        @sane.cmd
+        def save_for_later():
+            print("Self control really pays off sometimes!")
+        ```
+        
+        To run `save_for_later`, we just...
+
+        ```terminal
+        $ python camel_slobber.py save_for_later
+
+        Self control really pays off sometimes!
+        ```
+        
+        As mentioned already, @cmds also admit arguments; let's introduce yet
+        another @cmd, which takes a couple of arguments:
+
+        ```python
+        # camel_slobber.py
+        [...]
+        
+        @sane.cmd
+        def pay_compliments(first, second):
+            print(f"This camel slobber isn't just {first}, it's also {second}!")
+        ```
+        
+        Let's try to pay a compliment to the chef:
+
+        ```terminal
+        $ python camel_slobber.py pay_compliments "very sweet"
+
+        Have you forgot a -- before the @cmd's arguments?
+
+        Usage: man.py [--no-color | --color] [--verbose] --help
+               man.py --version
+               man.py [--no-color | --color] --list
+               man.py [--no-color | --color] [--verbose] [--jobs=<n>] [cmd] [-- ...args]
+        ```
+        
+        Ah, yes, I seem to be missing a "--" to separate the arguments meant for
+        sane from the arguments meant for my @cmd. Let me try this again:
+
+        ```terminal
+        $ python camel_slobber.py pay_compliments -- "very sweet"
+
+        [error] Wrong number of arguments for pay_compliments(first, second).
+
+        [... a snippet of the pay_compliments code ...]
+        ```
+        
+        Oh, now I'm missing a second argument, as I'd specified in the function
+        definition. Third time's the charm:
+
+        ```terminal
+        $ python camel_slobber.py pay_compliments -- "very sweet" "extremely tasty"
+
+        This camel slobber isn't just very sweet, it's also extremely tasty!
+        ```
+        
+        That looks like correct output to me! Do note that arguments given from
+        the command line will always be passed to the @cmds as strings.
+
+        Now let's backtrack a little, and focus on the preparation of the camel
+        slobber. We have a few @tasks to accomplish before being able to
+        `serve()` the dessert; but, in principle, there's no reasons the user
+        would want to invoke these @tasks directly. Therefore, we decorate these
+        functions accordingly:
+
+        ```python
+        @sane.task
+        def crack_eggs():
+            ...
+        
+        @sane.task
+        def beat_yolks():
+            ...
+        
+        @sane.task
+        def mix_yolks_and_dulce():
+            ...
+        
+        @sane.task
+        def beat_whites_to_stiff():
+            ...
+        
+        [...]
+        ```
+        
+        Note that @tasks don't take any arguments; sane won't let you decorate
+        a function taking arguments with @task. @tasks aren't very interesting
+        by themselves; their point is to be called upon as dependencies.
+        
+        The recipe we have states the following dependencies:
+
+        ```plain
+        [crack_eggs] ─┬───> [beat_yolks] ────────────>[mix_yolks_and_dulce]─┬─>[fold]─>(...)
+                      │                                                     │ 
+                      └─────────────> [beat_whites_to_stiff] ───────────────┘ 
+        ```
+        
+        (Notice how, if you have help, you can take care of the yolks and whites
+        at the same time; sane is aware of this, and can take advantage of it,
+        as we'll see later.)
+        
+        We can express these dependencies by use of the @depends decorator:
+
+        ```python
+        @sane.task
+        def crack_eggs():
+            ...
+        
+        @sane.task
+        @sane.depends(on_task=crack_eggs)
+        def beat_yolks():
+            ...
+        
+        @sane.task
+        @sane.depends(on_task=beat_yolks)
+        def mix_yolks_and_dulce():
+            ...
+        
+        @sane.task
+        @sane.depends(on_task=crack_eggs)
+        def beat_whites_to_stiff():
+            ...
+        
+        @sane.task
+        @sane.depends(on_task=mix_yolks_and_dulce)
+        @sane.depends(on_task=beat_whites_to_stiff)
+        def fold():
+            ...
+        ```
+
+        ## Dealing with corrupt magic
+        
+        TODO
+        
+        ## Why use sane?
+
+        Sane is 1. extremely portable, and 2. low (mental) overhead. This is
+        because (1.) sane is fully contained in a single Python file, so you can
+        (and should!) distribute it alongside your codebase, and (2.) sane
+        is vanilla Python. The second property makes sane extremely expressive
+        -- in fact, sane can do anything Python can -- and prevents the
+        introduction of more domain-specific languages.
+        
+        Of course, with great power comes great responsibility, and sane is
+        trivially Turing complete; that is, after all, the point. Therefore,
+        there are more ways to fail critically. But, as Python has shown over
+        the years, this flexibility is not much of a problem in practice,
+        especially when compared to the advantages it brings, and given that
+        other, more structured, tools are still available to be used in tandem.
+                      
+        Regardless, sane thoroughly attempts to validate the input program, and
+        will always try to guide you to write a correct program.
+        
+        ## TL;DR
+
+        1. Import sane
+        2. Use @sane.cmd for anything you'd want to run from the command line,
+           and @sane.task for anything you need to get done.
+        3. Decorate @cmds and @tasks with @depends, as appropriate.
+        4. Use @tag if you want to depend on a family of @tasks
+        5. run python your_script.py [sane args] -- [your args]
+        
+        ## References
+
+        [1]: https://en.m.wikipedia.org/wiki/Baba_de_camelo
+    '''
 
     Context = namedtuple(
         'Context', ('filename', 'lineno', 'code_context', 'index'))
