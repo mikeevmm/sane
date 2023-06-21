@@ -221,7 +221,7 @@ class _Sane:
     def get_short_usage(self):
         script = self.script_name
         return (f'Usage: {script} [--no-color | --color] [--verbose] --help\n'
-                f'       {script} --version'
+                f'       {script} --version\n'
                 f'       {script} [--no-color | --color] --list\n'
                 f'       {script} [--no-color | --color] [--verbose] [--jobs=<n>] [cmd] [-- ...args]')
 
@@ -686,6 +686,14 @@ class _Sane:
                     self.hint('(Use --list to see all available @cmds.)')
                     sys.exit(1)
                 cmd = self.cmds[cmd]
+                
+                if not self.is_signature_compatible(cmd, args):
+                    context = cmd.__sane__['context']
+                    str_cmd = self.get_name(cmd)
+                    str_args = self.get_str_args(cmd)
+                    self.error(f'Wrong number of arguments for {str_cmd}({str_args}).')
+                    self.show_context(context, 'error')
+                    sys.exit(1)
 
             self.run_tree(cmd, args)
 
@@ -906,12 +914,16 @@ class _Sane:
                     sys.exit(1)
 
                 resolved = self.cmds[cmd_depends]
-                self.ensure_signature_compatible(resolved, cmd_args, context)
+                if not self.is_signature_compatible(resolved, cmd_args):
+                    self.error(
+                        'Arguments given in @depends are incompatible with the function signature.')
+                    self.show_context(context, 'error')
+                    sys.exit(1)
                 props['depends']['cmd'][i] = ((resolved, cmd_args), context)
 
         props['depends']['resolved'] = True
 
-    def ensure_signature_compatible(self, func, args, context):
+    def is_signature_compatible(self, func, args):
         signature = inspect.signature(func)
         mandatory_arg_count = 0
         optional_arg_count = 0
@@ -922,11 +934,7 @@ class _Sane:
                 optional_arg_count += 1
         wrong_number_of_args = (len(args) < mandatory_arg_count or
                                 len(args) > mandatory_arg_count + optional_arg_count)
-        if wrong_number_of_args:
-            self.error(
-                'Arguments given in @depends are incompatible with the function signature.')
-            self.show_context(context, 'error')
-            sys.exit(1)
+        return not wrong_number_of_args
 
     def get_trace(self, stack):
         trace = []
@@ -965,7 +973,7 @@ class _Sane:
             assert func.__sane__['type'] == 'task'
             return f'(Anonymous Task @ {hex(id(func))})'
     
-    def get_str_args(self, func):
+    def get_str_args(self, cmd):
         cmd_args = inspect.signature(cmd).parameters.keys()
         if len(cmd_args) > 0:
             return ', '.join(cmd_args)
