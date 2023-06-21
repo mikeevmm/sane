@@ -146,7 +146,8 @@ class _Sane:
             self.setup_jobs(sane_args)
 
             if len(sane_args) > 0:
-                if len(sane_args) != 1:
+                if len(sane_args) > 1:
+                    self.hint('Have you forgot a -- before the @cmd\'s arguments?\n')
                     self.usage_error()
                 cmd = sane_args.pop()
                 if cmd.startswith('-'):
@@ -271,7 +272,8 @@ class _Sane:
             sys.exit(1)
 
         self.ensure_positional_args_only(context, func)
-
+        self.ensure_no_tags(func, context)
+        
         if not hasattr(func, '__name__'):
             self.error('A @cmd must have a name.')
             self.show_context(context, 'error')
@@ -335,7 +337,7 @@ class _Sane:
             self.show_context(context, 'error')
             sys.exit(1)
 
-        self.ensure_no_args(context, func)
+        self.ensure_no_args(func, context)
 
         props = self.get_props(func)
         if self.is_task_or_cmd(func):
@@ -368,6 +370,7 @@ class _Sane:
             self.error('@depends takes keyword arguments only.')
             self.show_context(context, 'error')
             self.hint('(Use on_tag=, on_cmd=, or on_task=.)')
+            sys.exit(1)
 
         given = list(arg for arg in ('on_tag', 'on_cmd',
                      'on_task') if arg in args.keys())
@@ -561,14 +564,14 @@ class _Sane:
         if invalid_args:
             self.error('@tag takes a single positional argument.')
             self.show_context(context, 'error')
-            self.hint('(For example, @tag(\'quo\').)')
+            self.hint('(For example, @tag(\'foo\').)')
             sys.exit(1)
 
         tag = args[0]
         if type(tag) is not str:
             self.error('@tag must be a string.')
             self.show_context(context, 'error')
-            self.hint('(For example, @tag(\'quo\').)')
+            self.hint('(For example, @tag(\'foo\').)')
             sys.exit(1)
 
         def specific_decorator(func):
@@ -577,6 +580,7 @@ class _Sane:
                 self.show_context(context, 'error')
                 sys.exit(1)
             props = self.get_props(func)
+            props['tags'].append(tag)
             self.tags.setdefault(tag, []).append(func)
             return func
 
@@ -843,6 +847,14 @@ class _Sane:
                     else:
                         stack.append(('visit', task_item))
                         self.incidence[task_item] = 1
+                for tag, _context in props['depends']['tag']:
+                    for task in self.tags.get(tag, []):
+                        task_item = (task, ())
+                        if task_item in self.incidence:
+                            self.incidence[task_item] += 1
+                        else:
+                            stack.append(('visit', task_item))
+                            self.incidence[task_item] = 1
             elif op == 'seal':
                 visiting.remove(item)
             else:
@@ -868,6 +880,12 @@ class _Sane:
                     incidence[task_item] -= 1
                     if incidence[task_item] == 0:
                         next_roots.append(task_item)
+                for tag, context_ in props['depends']['tag']:
+                    for task in self.tags.get(tag, []):
+                        task_item = (task, ())
+                        incidence[task_item] -= 1
+                        if incidence[task_item] == 0:
+                            next_roots.append(task_item)
             roots = next_roots
 
         toposort.reverse()
@@ -880,40 +898,14 @@ class _Sane:
         for i in range(len(props['depends']['task'])):
             task_depends, context = props['depends']['task'][i]
             if type(task_depends) is str:
-                if task_depends not in self.tasks:
-                    self.error(f'No @task named {task_depends}.')
-                    self.show_context(context, 'error')
-                    self.hint(
-                        '(You can reference a function directly, instead of a string.)')
-                    self.hint(
-                        '(Are you missing a @task somewhere?)')
-                    sys.exit(1)
-                elif len(self.tasks[task_depends]) > 1:
-                    self.error(
-                        f'There\'s more than one @task named {task_depends}.')
-                    self.show_context(context, 'error')
-                    self.hint(
-                        '(You can reference a function directly, instead of a string.)')
-                    self.hint(
-                        '(Alternatively, use @tag, and @depends(on_tag=...).)')
-                    sys.exit(1)
-                resolved = self.tasks[task_depends][0]
+                resolved = self.resolve_str_task(task_depends, context)
                 props['depends']['task'][i] = (resolved, context)
 
         for i in range(len(props['depends']['cmd'])):
             value, context = props['depends']['cmd'][i]
             cmd_depends, cmd_args = value
             if type(cmd_depends) is str:
-                if cmd_depends not in self.cmds:
-                    self.error(f'No @cmd named {cmd_depends}.')
-                    self.show_context(context, 'error')
-                    self.hint(
-                        '(You can reference a function directly, instead of a string.)')
-                    self.hint(
-                        '(Are you missing a @cmd somewhere?)')
-                    sys.exit(1)
-
-                resolved = self.cmds[cmd_depends]
+                resolved = self.resolve_str_cmd(cmd_depends, context)
                 if not self.is_signature_compatible(resolved, cmd_args):
                     self.error(
                         'Arguments given in @depends are incompatible with the function signature.')
@@ -922,6 +914,38 @@ class _Sane:
                 props['depends']['cmd'][i] = ((resolved, cmd_args), context)
 
         props['depends']['resolved'] = True
+    
+    def resolve_str_task(self, str_task, context):
+        if str_task not in self.tasks:
+            self.error(f'No @task named {str_task}.')
+            self.show_context(context, 'error')
+            self.hint(
+                '(You can reference a function directly, instead of a string.)')
+            self.hint(
+                '(Are you missing a @task somewhere?)')
+            sys.exit(1)
+        elif len(self.tasks[str_task]) > 1:
+            self.error(
+                f'There\'s more than one @task named {str_task}.')
+            self.show_context(context, 'error')
+            self.hint(
+                '(You can reference a function directly, instead of a string.)')
+            self.hint(
+                '(Alternatively, use @tag, and @depends(on_tag=...).)')
+            sys.exit(1)
+        return self.tasks[str_task][0]        
+
+    def resolve_str_cmd(self, str_cmd, context):
+        if str_cmd not in self.cmds:
+            self.error(f'No @cmd named {str_cmd}.')
+            self.show_context(context, 'error')
+            self.hint(
+                '(You can reference a function directly, instead of a string.)')
+            self.hint(
+                '(Are you missing a @cmd somewhere?)')
+            sys.exit(1)
+        return self.cmds[str_cmd]
+
 
     def is_signature_compatible(self, func, args):
         signature = inspect.signature(func)
@@ -983,8 +1007,18 @@ class _Sane:
     def is_task_or_cmd(self, func):
         props = self.get_props(func)
         return props['type'] is not None
+    
+    def ensure_no_tags(self, func, context):
+        props = self.get_props(func)
+        if not hasattr(func, '__sane__') or not 'tags' in func.__sane__:
+            return
+        if len(func.__sane__['tags']) > 0:
+            self.error('@cmds cannot have @tags.')
+            self.show_context(context, 'error')
+            self.hint('(Use a @task instead.)')
+            sys.exit(1)
 
-    def ensure_no_args(self, context: Context, func):
+    def ensure_no_args(self, func, context):
         signature = inspect.signature(func)
         if len(signature.parameters.values()) > 0:
             self.error('@task cannot have arguments.')
@@ -1008,6 +1042,7 @@ class _Sane:
             func.__dict__['__sane__'] = {
                 'type': None,
                 'context': None,
+                'tags': [],
                 'depends': {
                     'resolved': False,
                     'tag': [],
