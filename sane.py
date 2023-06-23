@@ -67,14 +67,16 @@ class _Sane:
         `make.py` now functions as an interactive script.
         Call `python make.py --help` for more information, or keep on reading.
         
-        ## Can you give me an example?
+        ## Sane by example
+                      
+        (See also: [Reference](#reference))
 
-        Sure! The author's favourite dessert, "camel slobber" ([really!][1]),
-        is not just extremely sweet, but very easy to prepare: you only need
-        6 eggs, and a can of cooked condensed milk (which you might know as
-        dulce de leche). You'll want to beat the yolks together with the dulce
-        de leche, and fold that together with the whites beaten to a stiff peak.
-        Then, chill everything and serve.
+        The author's favourite dessert, "camel slobber" ([really!][1]), is not
+        just extremely sweet, but very easy to prepare: you only need 6 eggs,
+        and a can of cooked condensed milk (which you might know as dulce de
+        leche). You'll want to beat the yolks together with the dulce de leche,
+        and fold that together with the whites beaten to a stiff peak. Then,
+        chill everything and serve.
 
         We can write some Python to do that:
 
@@ -255,14 +257,14 @@ class _Sane:
         The recipe we have states the following dependencies:
 
         ```plain
-        [crack_eggs] ─┬───> [beat_yolks] ────────────>[mix_yolks_and_dulce]─┬─>[fold]─>(...)
-                      │                                                     │ 
-                      └─────────────> [beat_whites_to_stiff] ───────────────┘ 
+        [crack_eggs] ─┬───> [beat_yolks] ───>[mix_yolks_and_dulce]─┬──>[fold]───>[chill]───>[serve]
+                      │                                            │ 
+                      └─────> [beat_whites_to_stiff] ──────────────┘ 
         ```
         
         (Notice how, if you have help, you can take care of the yolks and whites
-        at the same time; sane is aware of this, and can take advantage of it,
-        as we'll see later.)
+        at the same time; sane is aware of this, and can take advantage of it.
+        See the `--verbose --help` for the `--jobs` flag.)
         
         We can express these dependencies by use of the @depends decorator:
 
@@ -291,11 +293,181 @@ class _Sane:
         @sane.depends(on_task=beat_whites_to_stiff)
         def fold():
             ...
+        
+        @sane.task
+        @sane.depends(on_task=fold)
+        def chill():
+            ...
+        
+        @sane.cmd
+        @sane.depends(on_task=chill)
+        def serve():
+            ...
+        ```
+        
+        Now, whenever we want to serve some camel slobber, sane will take care
+        of preparing everything else. We can ask sane to report on what it's
+        doing by passing the `--verbose` flag:
+
+        ```terminal
+        $ python camel_slobber.py --verbose serve
+        
+        [log] Running crack_eggs()
+        ...
+        [log] Running beat_yolks()
+        ...
+        [log] Running beat_whites_to_stiff()
+        ...
+        [log] Running mix_yolks_and_dulce()
+        ...
+        [log] Running fold()
+        ...
+        [log] Running chill()
+        ...
+        [log] Running serve()
+        ```
+        
+        In this case, sane decided to beat the yolks before beating the whites
+        to a stiff, but it could just as well have decided the other way round,
+        since there's no relationship between the two tasks.
+
+        Note also that, just like we can define dependencies on @tasks, we can
+        also define dependencies on @cmds, with the difference that we must also
+        specify the corresponding arguments, in that case. This means that two
+        dependencies on the same @cmd with different arguments are considered
+        two different dependencies. So, for example, we could add...
+
+        ```python
+        @sane.cmd
+        @sane.depends(on_cmd=serve, args=())
+        def eat():
+            ...
+        ```
+        
+        Finally, let's talk about @tag. Because sane is very flexible, you can
+        create multiple @tasks on the fly, which is often useful for real-world
+        uses. For example, and moving beyond the camel slobber example, if
+        you're writing a compilation/linking file, you might have something as
+        follows:
+
+        ```python
+        def make_compile_task(file):
+            @sane.task
+            def compile_():
+                ...
+
+        for file in source_files:
+            make_compile_task(file)
         ```
 
-        ## Dealing with corrupt magic
+        (**NB:** Because of a quirk of for loops in Python, the use of a
+         `make_compile_task` is **necessary**. Otherwise, all tasks will refer
+         to the same `file` in `source_files`, namely, the last `file` in the
+         collection. This is because `file` is, in some sense, always the same
+         variable, just taking the different values in `source_files`. Whenever
+         the different @tasks are finally ran, they will all compile this same
+         `file`.)
+    
+        Then, a `link` @task depends on every compilation @task. But how can we
+        define this dependency? If we try something like...
+
+        ```python
+        # This won't work!
+
+        @sane.cmd
+        @sane.depends(on_task=compile_)
+        def link():
+            ...
+        ```
         
-        TODO
+        ...then Python will complain about namespaces, because `compile_` is
+        defined in a different scope. This may also happen if you define recipes
+        out of order (relative to the dependencies relationships), so sane lets
+        you reference other functions by name:
+
+        ```python
+        # This won't work either!
+
+        @sane.cmd
+        @sane.depends(on_task='compile_')
+        def link():
+            ...
+        ```
+        
+        This produces a different error message, now coming from sane:
+
+        ```terminal
+        [error] There's more than one @task named compile_.
+
+        ...
+
+           @sane.cmd
+        >  @sane.depends(on_task='compile_')
+           def link():
+
+        (You can reference a function directly, instead of a string.)
+        (Alternatively, use @tag, and @depends(on_tag=...).)
+        ```
+        
+        Obviously, every compilation task we've defined (one for each source
+        file) has the same name, "compile_", and because sane can't tell whether
+        you mean to define a dependency on every such function or only a
+        particular one, it cannot proceed.
+        
+        To deal with this situation, sane also has the concept of @tags. You can
+        tag any @task with one or more strings of your choosing, and define
+        dependencies on a @tag. If a @task depends on a @tag, it means it
+        depends on every @task with that @tag.
+        
+        So, in the present example, we would define the linking-compilation
+        dependency as follows:
+
+        ```python
+        # This will work!
+
+        def make_compile_task(file):
+            @sane.task
+            @sane.tag('compilation')
+            def compile_():
+                ...
+
+        for file in source_files:
+            make_compile_task(file)
+        
+        @sane.cmd
+        @sane.depends(on_tag='compilation')
+        def link():
+            ...
+        ```
+
+        ## The magic of sane, and what to do when it's corrupted
+        
+        **TL;DR:** Getting weird results or unexpected behaviour from your sane
+        code? Just call `sane.sane()` at the end of your file.
+
+        Sane uses the `atexit` module to magically execute the @cmds and @tasks
+        after they've all been defined. At the time of writing, the official
+        Python documentation does not specify any limitation to the sort of code
+        that can (or even should!) be ran inside an `atexit` handler. But, this
+        doesn't mean that there's no difference between the `atexit` context,
+        and the usual script context: in fact, the sane code runs after the
+        Python interpreter has begun to shut down. This has several
+        consequences: for example, the definition of `__main__` will be
+        different by the time your functions run, and some things are simply
+        (undocumentedly) not allowed, like spawning new jobs with the
+        `concurrent.futures` module. This may become a problem especially when
+        using external modules, which might make assumptions about the sort of
+        environment they're being used in.
+        
+        So, sane lets you opt out of this magic functionality, by letting you
+        run the relevant sane code yourself at the end of the main file. You can
+        do this with
+
+        ```python
+        [... definitions of @tasks and @cmds, and other contents ...]
+        
+        sane.sane()
+        ```
         
         ## Why use sane?
 
@@ -308,10 +480,11 @@ class _Sane:
         
         Of course, with great power comes great responsibility, and sane is
         trivially Turing complete; that is, after all, the point. Therefore,
-        there are more ways to fail critically. But, as Python has shown over
-        the years, this flexibility is not much of a problem in practice,
-        especially when compared to the advantages it brings, and given that
-        other, more structured, tools are still available to be used in tandem.
+        there are more, and more unpredictable, ways to fail critically. But,
+        as Python has shown over the years, this flexibility is not much of a
+        problem in practice, especially when compared to the advantages it
+        brings, and given that other, more structured, tools are still
+        available to be used in tandem.
                       
         Regardless, sane thoroughly attempts to validate the input program, and
         will always try to guide you to write a correct program.
@@ -325,7 +498,7 @@ class _Sane:
         4. Use @tag if you want to depend on a family of @tasks
         5. run python your_script.py [sane args] -- [your args]
         
-        ## References
+        ## Links
 
         [1]: https://en.m.wikipedia.org/wiki/Baba_de_camelo
     '''
