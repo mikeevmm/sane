@@ -29,11 +29,11 @@ import traceback
 import builtins
 import atexit
 import textwrap
-import concurrent.futures.thread
 from concurrent.futures import ThreadPoolExecutor
 from typing import Literal
 from collections import namedtuple
 
+__main__ = sys.modules['__main__']
 
 class _Sane:
 
@@ -368,6 +368,7 @@ class _Sane:
         self.run_on_exit()
 
     def initialize_properties(self):
+        self.magic = False
         self.finalized = False
         self.default = None
         self.cmds = {}
@@ -375,7 +376,7 @@ class _Sane:
         self.tags = {}
         self.operation = {}
         self.incidence = {}
-        self._thread_exe = None
+        self.thread_exe = None
         self.script_name = self.get_script_name()
 
     def setup_logging(self):
@@ -386,9 +387,8 @@ class _Sane:
             self.color = True
 
     def get_script_name(self):
-        main = sys.modules['__main__']
-        if hasattr(main, '__file__'):
-            return os.path.basename(main.__file__)
+        if hasattr(__main__, '__file__'):
+            return os.path.basename(__main__.__file__)
         else:
             return 'script'
 
@@ -460,11 +460,11 @@ class _Sane:
             try:
                 jobs = int(jobs)
                 if jobs == 1:
-                    self._thread_exe = None
+                    self.thread_exe = None
                 elif jobs == 0:
-                    self._thread_exe = ThreadPoolExecutor(max_workers=None)
+                    self.thread_exe = ThreadPoolExecutor(max_workers=None)
                 else:
-                    self._thread_exe = ThreadPoolExecutor(max_workers=jobs)
+                    self.thread_exe = ThreadPoolExecutor(max_workers=jobs)
             except ValueError:
                 self.error('--jobs must be a number.')
                 self.usage_error()
@@ -531,10 +531,6 @@ class _Sane:
                 '\n'
                 'Arguments given after \'--\' are passed to the provided @cmd.\n'
                 'If no command is given, the @default @cmd is ran, if it exists.')
-    
-    def get_manual(self):
-        return ('# Sane, Makefile for humans.\n'
-                '')
 
     def cmd_decorator(self, *args, **kwargs):
         context = _Sane.get_context()
@@ -941,10 +937,11 @@ class _Sane:
 
     def atexit(self):
         try:
+            self.magic = True
             self.main()
         except SystemExit as sys_exit:
-            if self._thread_exe is not None:
-                self._thread_exe.shutdown()
+            if self.thread_exe is not None:
+                self.thread_exe.shutdown()
             # TODO: Change exit code and exit cleanly.
             # This is currently apparently not possible.
             # See https://github.com/python/cpython/issues/103512
@@ -955,6 +952,8 @@ class _Sane:
         if self.exit_code or self.finalized:
             return
         self.finalized = True
+        
+        self.ensure_not_magic_and_parallel()
 
         op_mode = self.operation['mode']
         if op_mode == 'list':
@@ -991,8 +990,8 @@ class _Sane:
 
             self.run_tree(cmd, args)
 
-        if self._thread_exe is not None:
-            self._thread_exe.shutdown()
+        if self.thread_exe is not None:
+            self.thread_exe.shutdown()
 
     def list_cmds(self):
         for cmd_name, cmd in self.cmds.items():
@@ -1018,7 +1017,7 @@ class _Sane:
         self.update_graph(func, args)
         toposort = self.get_toposort(func, args)
         for slice_ in toposort[:-1]:
-            if self._thread_exe is None:
+            if self.thread_exe is None:
                 for func, args in slice_:
                     if self.verbose:
                         str_func = self.get_name(func)
@@ -1026,7 +1025,7 @@ class _Sane:
                         self.log(f'Running {str_func}({str_args})')
 
                     try:
-                        func.__call__(*args)
+                        self.catch_thread_exception(func)(*args)
                     except Exception as e:
                         self.report_func_failed(func, e)
             else:
@@ -1044,20 +1043,8 @@ class _Sane:
                         str_jobs = str_jobs[0]
                         self.log(f'Running {str_jobs}.')
 
-                # TODO: Reconsider this.
-                # This is due to https://github.com/python/cpython/issues/86813
-                # However, given the behaviour in <3.8, it's hard to understand
-                # the taken decision.
-                def _submit(func, args):
-                    with self._thread_exe._shutdown_lock, concurrent.futures.thread._global_shutdown_lock:
-                        if self._thread_exe._broken:
-                            raise BrokenThreadPool(self._broken)
-                        f = concurrent.futures.thread._base.Future()
-                        w = concurrent.futures.thread._WorkItem(f, func, args, {})
-                        self._thread_exe._work_queue.put(w)
-                        self._thread_exe._adjust_thread_count()
-                        return f
-                futures = (_submit(self.catch_thread_exception(func), args)
+                futures = (self.thread_exe.submit(
+                            self.catch_thread_exception(func), args)
                            for func, args in slice_)
                 for future in futures:
                     try:
@@ -1065,13 +1052,16 @@ class _Sane:
                     except Exception as e:
                         self.report_func_failed(func, e)
 
+        func, args = toposort[-1][0]
         if self.verbose:
             str_func = self.get_name(func)
             str_args = ', '.join(str(x) for x in args)
             self.log(f'Running {str_func}({str_args})')
 
-        func, args = toposort[-1][0]
-        return self.catch_thread_exception(func)(*args)
+        try:
+            return self.catch_thread_exception(func)(*args)
+        except Exception as e:
+            self.report_func_failed(func, e)
     
     def report_func_failed(self, func, exception):
         context = func.__sane__['context']
@@ -1297,6 +1287,12 @@ class _Sane:
     def is_task_or_cmd(self, func):
         props = self.get_props(func)
         return props['type'] is not None
+    
+    def ensure_not_magic_and_parallel(self):
+        if self.magic and self.thread_exe is not None:
+            self.error('To run sane with a number of jobs different from 1, '
+                      f'call sane.sane() at the end of {self.script_name}.')
+            sys.exit(1)
     
     def ensure_no_tags(self, func, context):
         props = self.get_props(func)
