@@ -238,7 +238,7 @@ class _Sane:
         ## Index
 
         * [What is sane?](#What-is-sane)
-        * [How can I get quickly started?](#How-can-I-get-quickly-started)
+        * [Quick start](#Quick-start)
         * [Sane by example](#Sane-by-example)
         * [The magic of sane, and what to do when it's corrupted](#The-magic-of-sane-and-what-to-do-when-its-corrupted)
         * [Reference](#Reference)
@@ -260,7 +260,7 @@ class _Sane:
         operates based on files (and not commands), but the principles and goals
         are very similar.
         
-        ## How can I get quickly started?
+        ## Quick start
 
         Place a copy of `sane.py` in a directory, and create a file to define
         your tasks (I usually go with `make.py`). Then, simply `import sane`.
@@ -275,7 +275,7 @@ class _Sane:
         
         ## Sane by example
                       
-        (See also: [Reference](#reference))
+        (See also: [Reference](#Reference))
 
         The author's favourite dessert, "camel slobber" ([really!][1]), is not
         just extremely sweet, but very easy to prepare: you only need 6 eggs,
