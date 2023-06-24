@@ -886,7 +886,7 @@ class _Sane:
                 if type(element) is str:
                     tag.append(_Sane.Depends(element, context))
                 else:
-                    self.error('on_tag= argument must be iterable of string.')
+                    self.error('on_tag= argument must be string or iterable of string.')
                     self.show_context(context, 'error')
                     sys.exit(1)
         else:
@@ -1027,10 +1027,37 @@ class _Sane:
             sys.exit(1)
 
         tag = args[0]
-        if type(tag) is not str:
-            self.error('@tag must be a string.')
+        tags = []
+        if type(tag) is str:
+            tags.append(tag)
+        elif hasattr(tag, '__iter__'):
+            if type(tag) not in (tuple, list, set):
+                if type(tag) is dict:
+                    self.warn('@tag\'s argument is a dictionary, which, although iterable, '
+                              'is ambiguous, since only the values (and not the keys) will '
+                              'be considered. The values will still be considered, but '
+                              'this may be unexpected.')
+                else:
+                    self.warn('@tag\'s argument is not a collection, although it is iterable. '
+                              'The elements in this iterator will still be considered, '
+                              'but exhaustion of the iterator may produce unexpected results.')
+                self.show_context(context, 'warn')
+                self.hint(
+                    '(To silence this warning, convert the argument to a collection type.)')
+
+            for element in tag:
+                if type(element) is str:
+                    tags.append(element)
+                else:
+                    self.error('@tag\'s argument must be string or iterable of string.')
+                    self.show_context(context, 'error')
+                    self.hint('(For example, @tag(\'foo\') or @tag([\'a\', \'b\']).)')
+                    sys.exit(1)
+        else:
+            self.error(
+                'tag\'s argument must be string or iterable of string.')
             self.show_context(context, 'error')
-            self.hint('(For example, @tag(\'foo\').)')
+            self.hint('(For example, @tag(\'foo\') or @tag([\'a\', \'b\']).)')
             sys.exit(1)
 
         def specific_decorator(func):
@@ -1039,8 +1066,9 @@ class _Sane:
                 self.show_context(context, 'error')
                 sys.exit(1)
             props = self.get_props(func)
-            props['tags'].append(tag)
-            self.tags.setdefault(tag, []).append(func)
+            props['tags'].extend(tags)
+            for tag in tags:
+                self.tags.setdefault(tag, []).append(func)
             return func
 
         return specific_decorator
