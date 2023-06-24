@@ -1,24 +1,10 @@
 '''Sane, Makefile for humans.
 
-Copyright 2023 Miguel Murça
+Copyright Miguel Murça 2023
 
-Permission is hereby granted, free of charge, to any person obtaining a copy of
-this software and associated documentation files (the 'Software'), to deal in
-the Software without restriction, including without limitation the rights to
-use, copy, modify, merge, publish, distribute, sublicense, and/or sell copies
-of the Software, and to permit persons to whom the Software is furnished to do
-so, subject to the following conditions:
-
-The above copyright notice and this permission notice shall be included in all
-copies or substantial portions of the Software.
-
-THE SOFTWARE IS PROVIDED 'AS IS', WITHOUT WARRANTY OF ANY KIND, EXPRESS OR
-IMPLIED, INCLUDING BUT NOT LIMITED TO THE WARRANTIES OF MERCHANTABILITY,
-FITNESS FOR A PARTICULAR PURPOSE AND NONINFRINGEMENT. IN NO EVENT SHALL THE
-AUTHORS OR COPYRIGHT HOLDERS BE LIABLE FOR ANY CLAIM, DAMAGES OR OTHER
-LIABILITY, WHETHER IN AN ACTION OF CONTRACT, TORT OR OTHERWISE, ARISING FROM,
-OUT OF OR IN CONNECTION WITH THE SOFTWARE OR THE USE OR OTHER DEALINGS IN THE
-SOFTWARE.
+This work is licensed under the Creative Commons
+Attribution-NonCommercial-ShareAlike 4.0 International License. To view a copy
+of this license, visit http://creativecommons.org/licenses/by-nc-sa/4.0/.
 '''
 
 import os
@@ -39,11 +25,231 @@ class _Sane:
 
     VERSION = '7.0'
     ANSI = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
-    MANUAL = '''
+    Context = namedtuple(
+        'Context', ('filename', 'lineno', 'code_context', 'index'))
+    Depends = namedtuple('Depends', ('value', 'context'))
+    Default = namedtuple('Default', ('func', 'context'))
+
+    singleton = None
+
+    @staticmethod
+    def strip_ansi(text):
+        return _Sane.ANSI.sub('', text)
+
+    @staticmethod
+    def get_context():
+        stack = inspect.stack(context=4)
+        for element in stack:
+            if element.frame.f_globals['__name__'] != __name__:
+                context = _Sane.Context(element.filename,
+                                        element.lineno,
+                                        element.code_context,
+                                        element.index)
+                stack.clear()
+                return context
+
+    @staticmethod
+    def get():
+        if _Sane.singleton is None:
+            _Sane.singleton = _Sane()
+        return _Sane.singleton
+
+    def __init__(self):
+        if _Sane.singleton is not None:
+            raise Exception()
+        self.initialize_properties()
+        self.setup_logging()
+        self.read_arguments()
+        self.run_on_exit()
+
+    def initialize_properties(self):
+        self.magic = False
+        self.finalized = False
+        self.default = None
+        self.cmds = {}
+        self.tasks = {}
+        self.tags = {}
+        self.operation = {}
+        self.incidence = {}
+        self.thread_exe = None
+        self.script_name = self.get_script_name()
+
+    def setup_logging(self):
+        self.verbose = False
+        if os.environ.get('NO_COLOR', False) or not sys.stdout.isatty():
+            self.color = False
+        else:
+            self.color = True
+
+    def get_script_name(self):
+        if hasattr(__main__, '__file__'):
+            return os.path.basename(__main__.__file__)
+        else:
+            return 'script'
+
+    def read_arguments(self):
+        args = sys.argv[1:]
+        if '--' in args:
+            cmd_arg_limit = args.index('--')
+            if cmd_arg_limit == len(args):
+                self.usage_error()
+            sane_args = list(args[:cmd_arg_limit])
+            cmd_args = tuple(args[cmd_arg_limit + 1:])
+        else:
+            sane_args = list(args)
+            cmd_args = None
+
+        color = self.get_cmdline_flag(sane_args, '-nc', '--no-color')
+        no_color = self.get_cmdline_flag(sane_args, '-c', '--color')
+        verbose = self.get_cmdline_flag(sane_args, '-v', '--verbose')
+        help_ = self.get_cmdline_flag(sane_args, '-h', '--help')
+
+        if color and no_color:
+            self.usage_error()
+            sys.exit(1)
+
+        if verbose:
+            self.verbose = True
+        if no_color:
+            self.color = False
+        if color:
+            self.color = True
+
+        if help_:
+            if verbose:
+                import pydoc
+                pydoc.pager(self.get_manual())
+            else:
+                print(self.get_long_usage())
+            self.finalized = True
+            sys.exit(0)
+
+        if '--list' in sane_args:
+            if cmd_args is not None or len(sane_args) != 1:
+                self.usage_error()
+            self.operation = {'mode': 'list'}
+        else:
+            self.setup_jobs(sane_args)
+
+            if len(sane_args) > 0:
+                if len(sane_args) > 1:
+                    self.hint('Have you forgot a -- before the @cmd\'s arguments?\n')
+                    self.usage_error()
+                cmd = sane_args.pop()
+                if cmd.startswith('-'):
+                    self.usage_error()
+            else:
+                cmd = None
+
+            if cmd_args is None:
+                cmd_args = ()
+
+            self.operation = {
+                'mode': 'cmd',
+                'cmd': cmd,
+                'args': cmd_args,
+            }
+    
+    def setup_jobs(self, args):
+        jobs = self.get_cmdline_value(args, '--jobs', '-j')
+        if jobs is not None:
+            try:
+                jobs = int(jobs)
+                if jobs == 1:
+                    self.thread_exe = None
+                elif jobs == 0:
+                    self.thread_exe = ThreadPoolExecutor(max_workers=None)
+                else:
+                    self.thread_exe = ThreadPoolExecutor(max_workers=jobs)
+            except ValueError:
+                self.error('--jobs must be a number.')
+                self.usage_error()
+
+    def get_cmdline_flag(self, args, short, long_):
+        has_short = (short in args)
+        has_long = (long_ in args)
+        if has_short and has_long:
+            self.usage_error()
+        else:
+            is_set = False
+            if has_short:
+                args.remove(short)
+                is_set = True
+            elif has_long:
+                args.remove(long_)
+                is_set = True
+            return is_set
+
+    def get_cmdline_value(self, args, long_, short):
+        for i in range(len(args)):
+            arg = args[i]
+            has_long = arg.startswith(long_)
+            has_short = arg.startswith(short)
+            if has_long or has_short:
+                if has_short:
+                    remaining = arg.removeprefix(short)
+                else:
+                    remaining = arg.removeprefix(long_)
+                if remaining.startswith('='):
+                    args.remove(arg)
+                    return remaining.removeprefix('=')
+                elif len(remaining) == 0:
+                    if i < len(args) - 1:
+                        value = args[i+1]
+                        args.remove(arg)
+                        args.remove(value)
+                        return value
+
+    def usage_error(self):
+        self.finalized = True
+        print(self.get_short_usage(), file=sys.stderr)
+        sys.exit(1)
+
+    def get_short_usage(self):
+        script = self.script_name
+        return (f'Usage: {script} [--no-color | --color] [--verbose] --help\n'
+                f'       {script} --version\n'
+                f'       {script} [--no-color | --color] --list\n'
+                f'       {script} [--no-color | --color] [--verbose] [--jobs=<n>] [cmd] [-- ...args]')
+
+    def get_long_usage(self):
+        return ('Sane, Make for humans.\n'
+                f'{self.get_short_usage()}\n\n'
+                'Options:\n'
+                '  --help         Show this screen, or the manual if --verbose is set.\n'
+                '  --version      Print the current sane version.\n'
+                '  --verbose      Produce verbose output.\n'
+                '  --color        Enable ANSI color codes even in non-console terminals.\n'
+                '  --no-color     Disable ANSI color codes in the output.\n'
+                '  --jobs=<n>     Perform (at most) \'n\' tasks concurrently.\n'
+                '                 If suppressed, tasks are evaluated serially.\n'
+                '                 Passing \'0\' runs any number of tasks concurrently.'
+                '\n'
+                'Arguments given after \'--\' are passed to the provided @cmd.\n'
+                'If no command is given, the @default @cmd is ran, if it exists.')
+        
+    def get_manual(self):
+        return inspect.cleandoc(f'''
         # Sane, Make for humans.
 
         (Hint: this manual is written in Markdown.
          Use your favourite terminal markdown renderer for optimal results.)
+        
+        ## Index
+
+        * [What is sane?](#What-is-sane)
+        * [How can I get quickly started?](#How-can-I-get-quickly-started)
+        * [Sane by example](#Sane-by-example)
+        * [The magic of sane, and what to do when it's corrupted](#The-magic-of-sane-and-what-to-do-when-its-corrupted)
+        * [Reference](#Reference)
+            - [@cmd](#cmd)
+            - [@task](#task)
+            - [@depends](#depends)
+            - [@tag](#tag)
+        * [Why use sane?](#Why-use-sane)
+        * [Hacking sane](#Hacking-sane)
+        * [Sane's license terms](#Sanes-license-terms)
+        * [TL;DR](#TLDR)
 
         ## What is sane?
 
@@ -185,7 +391,7 @@ class _Sane:
         
         @sane.cmd
         def pay_compliments(first, second):
-            print(f"This camel slobber isn't just {first}, it's also {second}!")
+            print(f"This camel slobber isn't just {{first}}, it's also {{second}}!")
         ```
         
         Let's try to pay a compliment to the chef:
@@ -442,33 +648,56 @@ class _Sane:
 
         ## The magic of sane, and what to do when it's corrupted
         
-        **TL;DR:** Getting weird results or unexpected behaviour from your sane
-        code? Just call `sane.sane()` at the end of your file.
+        > **TL;DR:** Getting weird results or unexpected behaviour from your
+        > sane code? Just call `if __name__ == '__main__': sane.sane()` at the
+        > end of your file.
 
         Sane uses the `atexit` module to magically execute the @cmds and @tasks
         after they've all been defined. At the time of writing, the official
         Python documentation does not specify any limitation to the sort of code
         that can (or even should!) be ran inside an `atexit` handler. But, this
         doesn't mean that there's no difference between the `atexit` context,
-        and the usual script context: in fact, the sane code runs after the
+        and the usual script context: in fact, the sane code responsible for 
+        understanding dependencies and running the relevant tasks runs after the
         Python interpreter has begun to shut down. This has several
         consequences: for example, the definition of `__main__` will be
         different by the time your functions run, and some things are simply
         (undocumentedly) not allowed, like spawning new jobs with the
-        `concurrent.futures` module. This may become a problem especially when
-        using external modules, which might make assumptions about the sort of
-        environment they're being used in.
+        `concurrent.futures` module. This is not a problem if all you're doing
+        is reading and writing to some files and spawning external commands.
+        But -- especially when using external modules, which might make
+        assumptions about the sort of environment they're being used in -- it
+        *may* be a problem.
         
         So, sane lets you opt out of this magic functionality, by letting you
-        run the relevant sane code yourself at the end of the main file. You can
-        do this with
+        run the relevant sane bootstrapping code yourself at the end of the
+        main file. You can do this with
 
         ```python
         [... definitions of @tasks and @cmds, and other contents ...]
         
-        sane.sane()
+        if __name__ == '__main__':
+            sane.sane()
         ```
         
+        ## Reference
+        
+        ### @cmd
+
+        {self.cmd_decorator.__doc__.strip()}
+        
+        ### @task
+
+        {self.task_decorator.__doc__.strip()}
+        
+        ### @depends
+
+        {self.depends_decorator.__doc__.strip()}
+        
+        ### @tag
+
+        {self.tag_decorator.__doc__.strip()}
+
         ## Why use sane?
 
         Sane is 1. extremely portable, and 2. low (mental) overhead. This is
@@ -480,7 +709,7 @@ class _Sane:
         
         Of course, with great power comes great responsibility, and sane is
         trivially Turing complete; that is, after all, the point. Therefore,
-        there are more, and more unpredictable, ways to fail critically. But,
+        there are more (and more unpredictable) ways to fail critically. But,
         as Python has shown over the years, this flexibility is not much of a
         problem in practice, especially when compared to the advantages it
         brings, and given that other, more structured, tools are still
@@ -489,223 +718,135 @@ class _Sane:
         Regardless, sane thoroughly attempts to validate the input program, and
         will always try to guide you to write a correct program.
         
+        ## Hacking sane
+
+        This section is written for those who either want to
+
+        * modify sane's internals,
+        * better understand how sane works, or
+        * are writing sufficiently non-standard Python that sane's inner
+          workings become relevant.
+          
+        Of course, this requires examining sane's source code, which is
+        available and was written to be as much self-documenting as possible;
+        the present text is only accompaniment. It's also expected that you
+        understand how Python decorators work, and relevant standard library
+        package documentation should also be considered, where applicable.
+        
+        Sane operates on the basis of a singleton, defined in the module as
+        `sane._sane`. This singleton is an instantiation of the `sane._Sane`
+        class, where all the relevant sane code is defined.
+
+        All of the user-facing decorators (i.e., @cmd, @task, @depends, @tag)
+        are exposed to the user by reexporting these symbols from the singleton
+        (see also [Python's documentation regarding import rules][2]).
+        
+        Given this, sane operates in, essentially, two stages: the first stage
+        concerns registration of user definitions and validation of user
+        arguments, as well as augmenting the given objects with the metadata
+        that sane will need in the second stage. In the second stage, sane
+        performs any necessary resolution (in particular, and for example,
+        matching `str` arguments to the functions they refer to; see @depends),
+        parses command-line arguments, and, if applicable, topologically sorts
+        dependencies and dispatches execution of the relevant @cmds and @tasks.
+        
+        The first stage is a product of the normal execution of the script;
+        the singleton is instantiated by means of the `import sane` statement,
+        and the code inside each of decorators handles argument validation and
+        metadata registration as appropriate. This does imply some limitations,
+        as decorators are evaluated "as they appear". This means that, for
+        example, a @depends decorator cannot validate at its evaluation time
+        whether a dependency given by name (`str`) is valid or not, as it may
+        happen that the corresponding definition appears later in the file, and
+        so has not yet been recorded. Thus, the second stage.
+
+        The second stage corresponds to the `_sane.main` function, and is also
+        exposed to the user (cf. the
+        [magic section](#The-magic-of-sane-and-what-to-do-when-its-corrupted)).
+        By default, sane runs in "magic mode", wherein the second stage is
+        registered as an [atexit][3] callback. Ensuring that this code only runs
+        when the script has successfully terminated requires monkey patching the
+        possible exit functions (namely, `sys.exit` and `builtins.exit`). Cf.
+        the relevant code for details. In any case, the code guards against
+        running more than once (and so can be prevented from running at all by
+        manipulation of the singleton's state).
+        
+        Finally, note that whenever an object is augmented with sane-relevant
+        metadata, this metadata is stored in a `dict` attribute named
+        `__sane__`. Inspection of this dictionary at different points of
+        execution may help with understanding sane's operation.
+        
+        ## Sane's license terms
+
+        Sane is distributed under a [CC-BY-NC-SA-4.0][4] license. *Informally*,
+        this means you are free to use sane in a non-commercial context (i.e.,
+        personally and academically), as well as modify sane, as long as you:
+
+        - Give proper credit and provide a link to the license (so, don't
+          modify sane's __doc__ string at the top of the file),
+        - Indicate if and what changes were made,
+        - Share your modifications of sane under this same license.
+         
+        For uses of sane under different terms, please contact the author.
+
+        If you use do use sane under the CC-BY-NC-SA-4.0 terms, the author adds
+        a (non-legally enforceable) clause that they would be very thankful if
+        you would [buy them a coffee][5].
+
         ## TL;DR
 
-        1. Import sane
+        1. Import sane.
         2. Use @sane.cmd for anything you'd want to run from the command line,
            and @sane.task for anything you need to get done.
         3. Decorate @cmds and @tasks with @depends, as appropriate.
-        4. Use @tag if you want to depend on a family of @tasks
-        5. run python your_script.py [sane args] -- [your args]
+        4. Use @tag if you want to depend on a family of @tasks.
+        5. run `python your_script.py [sane args] -- [your args]`.
         
         ## Links
 
         [1]: https://en.m.wikipedia.org/wiki/Baba_de_camelo
-    '''
+        [2]: https://docs.python.org/3/reference/simple_stmts.html#import
+        [3]: https://docs.python.org/3/library/atexit.html
+        [4]: http://creativecommons.org/licenses/by-nc-sa/4.0/.
+        [5]: https://www.paypal.me/miguelmurca/4.00
+    ''')
 
-    Context = namedtuple(
-        'Context', ('filename', 'lineno', 'code_context', 'index'))
-    Depends = namedtuple('Depends', ('value', 'context'))
-    Default = namedtuple('Default', ('func', 'context'))
 
-    singleton = None
-
-    @staticmethod
-    def strip_ansi(text):
-        return _Sane.ANSI.sub('', text)
-
-    @staticmethod
-    def get_context():
-        stack = inspect.stack(context=4)
-        for element in stack:
-            if element.frame.f_globals['__name__'] != __name__:
-                context = _Sane.Context(element.filename,
-                                        element.lineno,
-                                        element.code_context,
-                                        element.index)
-                stack.clear()
-                return context
-
-    @staticmethod
-    def get():
-        if _Sane.singleton is None:
-            _Sane.singleton = _Sane()
-        return _Sane.singleton
-
-    def __init__(self):
-        if _Sane.singleton is not None:
-            raise Exception()
-        self.initialize_properties()
-        self.setup_logging()
-        self.read_arguments()
-        self.run_on_exit()
-
-    def initialize_properties(self):
-        self.magic = False
-        self.finalized = False
-        self.default = None
-        self.cmds = {}
-        self.tasks = {}
-        self.tags = {}
-        self.operation = {}
-        self.incidence = {}
-        self.thread_exe = None
-        self.script_name = self.get_script_name()
-
-    def setup_logging(self):
-        self.verbose = False
-        if os.environ.get('NO_COLOR', False) or not sys.stdout.isatty():
-            self.color = False
-        else:
-            self.color = True
-
-    def get_script_name(self):
-        if hasattr(__main__, '__file__'):
-            return os.path.basename(__main__.__file__)
-        else:
-            return 'script'
-
-    def read_arguments(self):
-        args = sys.argv[1:]
-        if '--' in args:
-            cmd_arg_limit = args.index('--')
-            if cmd_arg_limit == len(args):
-                self.usage_error()
-            sane_args = list(args[:cmd_arg_limit])
-            cmd_args = tuple(args[cmd_arg_limit + 1:])
-        else:
-            sane_args = list(args)
-            cmd_args = None
-
-        color = self.get_cmdline_flag(sane_args, '-nc', '--no-color')
-        no_color = self.get_cmdline_flag(sane_args, '-c', '--color')
-        verbose = self.get_cmdline_flag(sane_args, '-v', '--verbose')
-        help_ = self.get_cmdline_flag(sane_args, '-h', '--help')
-
-        if color and no_color:
-            self.usage_error()
-            sys.exit(1)
-
-        if verbose:
-            self.verbose = True
-        if no_color:
-            self.color = False
-        if color:
-            self.color = True
-
-        if help_:
-            if verbose:
-                print(inspect.cleandoc(_Sane.MANUAL))
-            else:
-                print(self.get_long_usage())
-            self.finalized = True
-            sys.exit(0)
-
-        if '--list' in sane_args:
-            if cmd_args is not None or len(sane_args) != 1:
-                self.usage_error()
-            self.operation = {'mode': 'list'}
-        else:
-            self.setup_jobs(sane_args)
-
-            if len(sane_args) > 0:
-                if len(sane_args) > 1:
-                    self.hint('Have you forgot a -- before the @cmd\'s arguments?\n')
-                    self.usage_error()
-                cmd = sane_args.pop()
-                if cmd.startswith('-'):
-                    self.usage_error()
-            else:
-                cmd = None
-
-            if cmd_args is None:
-                cmd_args = ()
-
-            self.operation = {
-                'mode': 'cmd',
-                'cmd': cmd,
-                'args': cmd_args,
-            }
-    
-    def setup_jobs(self, args):
-        jobs = self.get_cmdline_value(args, '--jobs', '-j')
-        if jobs is not None:
-            try:
-                jobs = int(jobs)
-                if jobs == 1:
-                    self.thread_exe = None
-                elif jobs == 0:
-                    self.thread_exe = ThreadPoolExecutor(max_workers=None)
-                else:
-                    self.thread_exe = ThreadPoolExecutor(max_workers=jobs)
-            except ValueError:
-                self.error('--jobs must be a number.')
-                self.usage_error()
-
-    def get_cmdline_flag(self, args, short, long_):
-        has_short = (short in args)
-        has_long = (long_ in args)
-        if has_short and has_long:
-            self.usage_error()
-        else:
-            is_set = False
-            if has_short:
-                args.remove(short)
-                is_set = True
-            elif has_long:
-                args.remove(long_)
-                is_set = True
-            return is_set
-
-    def get_cmdline_value(self, args, long_, short):
-        for i in range(len(args)):
-            arg = args[i]
-            has_long = arg.startswith(long_)
-            has_short = arg.startswith(short)
-            if has_long or has_short:
-                if has_short:
-                    remaining = arg.removeprefix(short)
-                else:
-                    remaining = arg.removeprefix(long_)
-                if remaining.startswith('='):
-                    args.remove(arg)
-                    return remaining.removeprefix('=')
-                elif len(remaining) == 0:
-                    if i < len(args) - 1:
-                        value = args[i+1]
-                        args.remove(arg)
-                        args.remove(value)
-                        return value
-
-    def usage_error(self):
-        self.finalized = True
-        print(self.get_short_usage(), file=sys.stderr)
-        sys.exit(1)
-
-    def get_short_usage(self):
-        script = self.script_name
-        return (f'Usage: {script} [--no-color | --color] [--verbose] --help\n'
-                f'       {script} --version\n'
-                f'       {script} [--no-color | --color] --list\n'
-                f'       {script} [--no-color | --color] [--verbose] [--jobs=<n>] [cmd] [-- ...args]')
-
-    def get_long_usage(self):
-        return ('Sane, Make for humans.\n'
-                f'{self.get_short_usage()}\n\n'
-                'Options:\n'
-                '  --help         Show this screen, or the manual if --verbose is set.\n'
-                '  --version      Print the current sane version.\n'
-                '  --verbose      Produce verbose output.\n'
-                '  --color        Enable ANSI color codes even in non-console terminals.\n'
-                '  --no-color     Disable ANSI color codes in the output.\n'
-                '  --jobs=<n>     Perform (at most) \'n\' tasks concurrently.\n'
-                '                 If suppressed, tasks are evaluated serially.\n'
-                '                 Passing \'0\' runs any number of tasks concurrently.'
-                '\n'
-                'Arguments given after \'--\' are passed to the provided @cmd.\n'
-                'If no command is given, the @default @cmd is ran, if it exists.')
 
     def cmd_decorator(self, *args, **kwargs):
+        """Defines this function as a sane @cmd.
+        
+        Example use:
+
+        ```
+        @sane.cmd
+        def my_cmd():
+            \"\"\"Description of this command.\"\"\"
+            pass
+        ```
+
+        A @cmd is a function that the user can invoke from the command line, and
+        generally corresponds to some end-goal. 
+        
+        A @cmd is allowed to have arguments, but only positional arguments, and
+        not keyword arguments. The reasoning is that, since @cmds are allowed to
+        be invoked from the command line, keyword arguments cannot be reliably
+        specified.
+
+        For this same reason, when a @cmd is evoked from the command line, the
+        arguments given are passed as strings to the function.
+        
+        Finally, for the same reason, two @cmds cannot have the same name.
+        Therefore, any two functions with @cmd decorators must have different
+        `__name__` attributes.
+        
+        When a @cmd is evoked from within other @cmds or @tasks, the dependency
+        tree is first ran (see also @depends and @task).
+        
+        The user can list all defined @cmds by calling the main script with the
+        `--list` flag. If the `--verbose` flag is also given, the `__doc__`
+        string of the function and arguments are also listed.
+        """
         context = _Sane.get_context()
 
         if self.finalized:
@@ -772,6 +913,29 @@ class _Sane:
         return cmd
 
     def task_decorator(self, *args, **kwargs):
+        """Defines this function as a sane @task.
+
+        Example use:
+
+        ```
+        @sane.task
+        def my_task():
+            pass
+        ```
+
+        A @task is a function that sane can call as part of its execution, and
+        that may require the execution of other @tasks or @cmds. It generally
+        corresponds to a modular step in a process, but that is not expected to
+        be the final step.
+        
+        A @task is not allowed to have arguments (see, instead, @cmd). Likewise,
+        @tasks cannot be called upon by the user, and are not listed when the
+        user executes the main script with `--list`.
+        
+        @tasks may share the same `__name__` attributes (cf. with @cmd).
+        In this case, however, they may only serve as dependencies by means of
+        the @tag decorator.
+        """
         context = _Sane.get_context()
 
         if self.finalized:
@@ -823,6 +987,73 @@ class _Sane:
         return task
 
     def depends_decorator(self, *pargs, **args):
+        """Defines a dependency between this sane @cmd or @task and another sane function.
+
+        Example use:
+
+        ```
+        @sane.task
+        def a_task():
+            pass
+
+        @sane.cmd
+        @sane.depends(on_task=a_task)
+        def a_cmd():
+            pass
+        ```
+        
+        Uses:
+
+            @depends(on_task=...)
+            
+            @depends(on_cmd=..., args=(...))
+            
+            @depends(on_tag=...)
+        
+        A @depends decorator specifies that the decorated @cmd or @task requires
+        that another @cmd or @task is previously ran. The chain of dependencies
+        specified by each @cmd or @task's @depends decorators defines a
+        dependency tree which is sorted before execution (much like Make).
+        
+        Depending on whether @depends is specifying a dependency on either a
+        @cmd, a @tag, or on a @task, the required arguments vary.
+        
+        ## Depending on a @cmd
+
+        If @depends is specifying a dependency on a @cmd, exactly two arguments
+        are required: `on_cmd=` and `args=`.
+        
+        `on_cmd=` must be either the @cmd decorated function to depend on, or
+        its name in the form of a `str`. Since two @cmds cannot share the same
+        name (see @cmd), either form is always accepted.
+
+        `args=` must be a `tuple` or `list` of arguments to pass to the @cmd
+        decorated function to depend on. As such, it must be compatible with
+        the `on_cmd=` function's signature. This argument is mandatory, even if
+        the `on_cmd=` function takes no arguments; in this case, `args=()`
+        must be given.
+        
+        ## Depending on a @task
+
+        If @depends is specifying a dependency on a @task, exactly one argument
+        is required: `on_task=`.
+
+        `on_task=` must be either the @task decorated function to depend on, or
+        its name in the form of a `str`. If more than one @task shares the same
+        given name, specification by the form of a `str` is disallowed, and a
+        @tag should be used instead.
+
+        ## Depending on a @tag
+
+        If @depends is specifying a dependency on a @tag, exactly one argument
+        is required: `on_tag=`. This argument may be either a `str`, or a `list`
+        or `tuple` of `str`. In the latter case, this is taken to be equivalent
+        to a `@depends(on_tag=...)` statement for each of the elements of the
+        collection.
+        
+        @depends(on_tag=...) specifies a dependency on every @task with a
+        matching @tag. See @tag for more information.
+        """
         context = _Sane.get_context()
 
         if len(pargs) > 0:
@@ -1016,6 +1247,36 @@ class _Sane:
         return func
 
     def tag_decorator(self, *args, **kwargs):
+        """Adds a tag to a sane @cmd or @task.
+        
+        Example use:
+
+        ```
+        @sane.task
+        @sane.tag('compilation')
+        def compile_a():
+            pass
+
+        @sane.task
+        @sane.tag('compilation')
+        def compile_b():
+            pass
+
+        @sane.cmd
+        @sane.depends(on_tag='compilation')
+        def link():
+            pass
+        ```
+
+        A @tag is a way to specify dependencies on a group of functions, rather
+        than on a specific function (when used in conjunction with
+        `@depends(on_tag=...)`; see also @depends).
+        
+        @tag takes exactly one positional argument, which is either a `str` or
+        a `list` or `tuple` of `str`. In the latter case, this is taken to be
+        equivalent to a `@tag(...)` statement for each of the elements of the
+        collection.
+        """
         context = _Sane.get_context()
 
         invalid_args = (len(kwargs) > 0 or
