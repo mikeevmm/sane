@@ -1,259 +1,723 @@
-# Sane
+# Sane, Make for humans.
 
-`sane` is a command runner made simple.
+![Demo gif. Yes, I'm running this on powershell.](demo.gif)
 
-![Bit depressing, eh?](demo.gif)
+## Index
 
-## What
+* [What is sane?](#What-is-sane)
+* [Quick start](#Quick-start)
+* [Sane by example](#Sane-by-example)
+* [The magic of sane, and what to do when it's corrupted](#The-magic-of-sane-and-what-to-do-when-its-corrupted)
+* [Reference](#Reference)
+    - [@cmd](#cmd)
+    - [@task](#task)
+    - [@depends](#depends)
+    - [@tag](#tag)
+* [Why use sane?](#Why-use-sane)
+* [Hacking sane](#Hacking-sane)
+* [Sane's license terms](#Sanes-license-terms)
+* [TL;DR](#TLDR)
 
-`sane` is:
+## What is sane?
 
-- A *single* *Python* file, providing
-- A decorator (`@recipe`), and a function (`sane_run`)
+Sane is a command runner. It defines a simple interface to declare
+functions to run, and relationships between those functions. In
+particular, it lets you define certain functions as requiring other
+tasks to be completed first. This is not exactly the same as Make, which
+operates based on files (and not commands), but the principles and goals
+are very similar.
 
-`sane` does **not**:
+## Quick start
 
-- Have its own domain specific language,
-- Have an install process,
-- Require anything other than `python3`,
-- Restrict your Python code.
-
-## Why
-
-- More portable
-
-At ~600 lines of code in a single file, `sane` is extremely portable, being made to be distributed alongside your code base. Being pure Python makes it cross-platform and with an extremely low adoption barrier. `sane` does not parse Python, or do otherwise "meta" operations, improving its future-proofness. `sane` aims to do only as much as reasonably documentable in a single README, and aims to have the minimum amount of gotchas, while preserving maximum flexibility.
-
-- More readable
-
-Its simple syntax and operation make it easy to understand and modify your recipe files. Everything is just Python, meaning neither you nor your users have to learn yet another domain specific language. 
-
-- More flexible
-
-You are free to keep state as you see fit, and all correct Python is valid. `sane` can function as a build system or as a command runner.
-
-## Example
-
-Below is a sane recipes file to compile a C executable (`Makefile` style).
+Place a copy of `sane.py` in a directory, and create a file to define
+your tasks (I usually go with `make.py`). Then, simply `import sane`.
 
 ```python
-"""make.py
-
-Exists in the root of a C project folder, with the following structure
-
-<root>
-   └ make.py
-   └ sane.py
-   │
-   └ src
-      └ *.c (source files)
-
-The `build` recipe will build an executable at the root.
-The executable can be launched with `python make.py`.
-"""
-
-import os
-from subprocess import run
-from glob import glob
-
-from sane import *
-from sane import _Help as Help
-
-CC = "gcc"
-EXE = "main"
-SRC_DIR = "src"
-OBJ_DIR = "obj"
-
-COMPILE_FLAGS = '-g -O2'
-
-# Ensure source and objects directories exist
-os.makedirs(SRC_DIR, exist_ok=True)
-os.makedirs(OBJ_DIR, exist_ok=True)
-
-sources = glob(f'{SRC_DIR}/*.c')
-
-# Define a compile recipe for each source file in SRC_DIR
-
-def make_recipe(source_file):
-    basename = os.path.basename(source_file)
-    obj_file = f'{OBJ_DIR}/{basename}.o'
-    objects_older_than_source = (
-        Help.file_condition(sources=[source_file], targets=[obj_file]))
-    
-    @recipe(name=source_file,
-            conditions=[objects_older_than_source],
-            hooks=['compile'],
-            info=f'Compiles the file \'{source_file}\'')
-    def compile():
-        run(f'{CC} {COMPILE_FLAGS} -c {source_file} -o {obj_file}', shell=True)
-
-for source_file in sources:
-    make_recipe(source_file)
-    # Why not define the recipe here directly? Because Python loops don't create
-    # new scope. See stackoverflow:2295290 for more information.
-
-# Define a linking recipe
-@recipe(hook_deps=['compile'],
-        info='Links the executable.')
-def link():
-    obj_files = glob(f'{OBJ_DIR}/*.o')
-    run(f'{CC} {" ".join(obj_files)} -o {EXE}', shell=True)
-
-# Define a run recipe
-# Always run the executable!
-@recipe(recipe_deps=[link],
-        conditions=[lambda: True],
-        info='Runs the compiled executable.')
-def run_exe():
-    run(f'./{EXE}', shell=True)
-
-sane_run(run_exe)
+# make.py
+import sane
 ```
 
-## The Flow of Recipes
+`make.py` now functions as an interactive script.
+Call `python make.py --help` for more information, or keep on reading.
 
-`sane` uses **recipes**, **conditions** and **hooks**.
+## Sane by example
+              
+(See also: [Reference](#Reference))
 
-**Recipe:** A python function, with dependencies (on either/both other recipes and hooks), hooks, and conditions.
+The author's favourite dessert, "camel slobber" ([really!][1]), is not
+just extremely sweet, but very easy to prepare: you only need 6 eggs,
+and a can of cooked condensed milk (which you might know as dulce de
+leche). You'll want to beat the yolks together with the dulce de leche,
+and fold that together with the whites beaten to a stiff peak. Then,
+chill everything and serve.
 
-**Conditions:** Argument-less functions returning True or False.
-
-**Hook:** A non-unique indentifier for a recipe. When a recipe depends on a hook, it depends on every recipe tagged with that hook.
-
-The dependency tree of a given recipe is built and ran with `sane_run(recipe)`.
-This is done according to a simple recursive algorithm:
-
-0. Starting with the root recipe,
-1. If the current recipe has no conditions or dependencies, register it as active
-2. Otherwise, if any of the conditions is satisfied or dependency recipes is active, register it as active.
-3. Sort the active recipes in descending depth and order of enumeration,
-4. Run the recipes in order.
-
-In concrete terms, this means that if
-
-- Recipe `A` depends on `B`
-- `B` has some conditions and depends on `C`
-- `C` has some conditions
-
-then
-
-- If any of `B`'s conditions is satisfied, but none of `C`'s are, `B` is called and then `A` is called
-- If any of `C`'s conditions is satisfied, `C`, `B`, `A` are called in that order
-- Otherwise, nothing is ran.
-
-## The `@recipe` decorator
-
-Recipes are defined by decorating an argument-less function with `@recipe`:
+We can write some Python to do that:
 
 ```python
-@recipe(name='...',
-        hooks=['...'],
-        recipe_deps=['...'],
-        hook_deps=['...'],
-        conditions=[...],
-        info='...')
-def my_recipe():
-    # ...
+# camel_slobber.py
+
+def crack_eggs():
+    ...
+
+def beat_yolks():
+    ...
+
+def mix_yolks_and_dulce():
+    ...
+
+def beat_whites_to_stiff():
+    ...
+
+def fold():
+    ...
+
+def chill():
+    ...
+
+def serve():
+    ...
+```
+
+Now, there are some clear dependencies between the functions above: you
+can't beat the yolks before cracking the eggs, and you definitely can't
+serve before folding the two mixes together. Sane allows you to express
+these relationships.
+
+We start by importing sane:
+
+```python
+# camel_slobber.py
+import sane
+
+def crack_eggs():
+    ...
+[...]
+```
+
+This will automatically transform the `camel_slobber.py` file into an
+interactive script; try it out:
+
+```terminal
+$ python cammel_slobber.py
+
+[error] No @cmd given, and no @default @cmd exists.
+(Add @default to a @cmd to run it when no @cmd is specified.)
+(If you need help getting started with sane, run 'man.py --verbose --help)'.
+```
+
+Sane is telling us we need a @default @cmd. @cmds are tasks that we
+expect the user to want to execute directly, and that can (therefore)
+take some arguments. You declare a function to be a @cmd by decorating
+it accordingly:
+
+```python
+# camel_slobber.py
+import sane
+
+[...]
+
+@sane.default
+@sane.cmd
+def serve():
+    print("Oooh, ahhh!")
+```
+
+Naturally, the @default @cmd is the one that's ran if no @cmd is
+specified by the user. If we now run the script again...
+
+```terminal
+$ python camel_slobber.py
+
+Ooooh, ahhh!
+```
+
+Sane executed our @default @cmd! Let's define an alternative @cmd:
+
+```python
+[...]
+
+@sane.cmd
+def save_for_later():
+    print("Self control really pays off sometimes!")
+```
+
+To run `save_for_later`, we just...
+
+```terminal
+$ python camel_slobber.py save_for_later
+
+Self control really pays off sometimes!
+```
+
+As mentioned already, @cmds also admit arguments; let's introduce yet
+another @cmd, which takes a couple of arguments:
+
+```python
+# camel_slobber.py
+[...]
+
+@sane.cmd
+def pay_compliments(first, second):
+    print(f"This camel slobber isn't just {first}, it's also {second}!")
+```
+
+Let's try to pay a compliment to the chef:
+
+```terminal
+$ python camel_slobber.py pay_compliments "very sweet"
+
+Have you forgot a -- before the @cmd's arguments?
+
+Usage: man.py [--no-color | --color] [--verbose] --help
+       man.py --version
+       man.py [--no-color | --color] --list
+       man.py [--no-color | --color] [--verbose] [--jobs=<n>] [cmd] [-- ...args]
+```
+
+Ah, yes, I seem to be missing a "--" to separate the arguments meant for
+sane from the arguments meant for my @cmd. Let me try this again:
+
+```terminal
+$ python camel_slobber.py pay_compliments -- "very sweet"
+
+[error] Wrong number of arguments for pay_compliments(first, second).
+
+[... a snippet of the pay_compliments code ...]
+```
+
+Oh, now I'm missing a second argument, as I'd specified in the function
+definition. Third time's the charm:
+
+```terminal
+$ python camel_slobber.py pay_compliments -- "very sweet" "extremely tasty"
+
+This camel slobber isn't just very sweet, it's also extremely tasty!
+```
+
+That looks like correct output to me! Do note that arguments given from
+the command line will always be passed to the @cmds as strings.
+
+Now let's backtrack a little, and focus on the preparation of the camel
+slobber. We have a few @tasks to accomplish before being able to
+`serve()` the dessert; but, in principle, there's no reasons the user
+would want to invoke these @tasks directly. Therefore, we decorate these
+functions accordingly:
+
+```python
+@sane.task
+def crack_eggs():
+    ...
+
+@sane.task
+def beat_yolks():
+    ...
+
+@sane.task
+def mix_yolks_and_dulce():
+    ...
+
+@sane.task
+def beat_whites_to_stiff():
+    ...
+
+[...]
+```
+
+Note that @tasks don't take any arguments; sane won't let you decorate
+a function taking arguments with @task. @tasks aren't very interesting
+by themselves; their point is to be called upon as dependencies.
+
+The recipe we have states the following dependencies:
+
+```plain
+[crack_eggs] ─┬───> [beat_yolks] ───>[mix_yolks_and_dulce]─┬──>[fold]───>[chill]───>[serve]
+              │                                            │ 
+              └─────> [beat_whites_to_stiff] ──────────────┘ 
+```
+
+(Notice how, if you have help, you can take care of the yolks and whites
+at the same time; sane is aware of this, and can take advantage of it.
+See the `--verbose --help` for the `--jobs` flag.)
+
+We can express these dependencies by use of the @depends decorator:
+
+```python
+@sane.task
+def crack_eggs():
+    ...
+
+@sane.task
+@sane.depends(on_task=crack_eggs)
+def beat_yolks():
+    ...
+
+@sane.task
+@sane.depends(on_task=beat_yolks)
+def mix_yolks_and_dulce():
+    ...
+
+@sane.task
+@sane.depends(on_task=crack_eggs)
+def beat_whites_to_stiff():
+    ...
+
+@sane.task
+@sane.depends(on_task=mix_yolks_and_dulce)
+@sane.depends(on_task=beat_whites_to_stiff)
+def fold():
+    ...
+
+@sane.task
+@sane.depends(on_task=fold)
+def chill():
+    ...
+
+@sane.cmd
+@sane.depends(on_task=chill)
+def serve():
+    ...
+```
+
+Now, whenever we want to serve some camel slobber, sane will take care
+of preparing everything else. We can ask sane to report on what it's
+doing by passing the `--verbose` flag:
+
+```terminal
+$ python camel_slobber.py --verbose serve
+
+[log] Running crack_eggs()
+...
+[log] Running beat_yolks()
+...
+[log] Running beat_whites_to_stiff()
+...
+[log] Running mix_yolks_and_dulce()
+...
+[log] Running fold()
+...
+[log] Running chill()
+...
+[log] Running serve()
+```
+
+In this case, sane decided to beat the yolks before beating the whites
+to a stiff, but it could just as well have decided the other way round,
+since there's no relationship between the two tasks.
+
+Note also that, just like we can define dependencies on @tasks, we can
+also define dependencies on @cmds, with the difference that we must also
+specify the corresponding arguments, in that case. This means that two
+dependencies on the same @cmd with different arguments are considered
+two different dependencies. So, for example, we could add...
+
+```python
+@sane.cmd
+@sane.depends(on_cmd=serve, args=())
+def eat():
+    ...
+```
+
+Finally, let's talk about @tag. Because sane is very flexible, you can
+create multiple @tasks on the fly, which is often useful for real-world
+uses. For example, and moving beyond the camel slobber example, if
+you're writing a compilation/linking file, you might have something as
+follows:
+
+```python
+def make_compile_task(file):
+    @sane.task
+    def compile_():
+        ...
+
+for file in source_files:
+    make_compile_task(file)
+```
+
+(**NB:** Because of a quirk of for loops in Python, the use of a
+ `make_compile_task` is **necessary**. Otherwise, all tasks will refer
+ to the same `file` in `source_files`, namely, the last `file` in the
+ collection. This is because `file` is, in some sense, always the same
+ variable, just taking the different values in `source_files`. Whenever
+ the different @tasks are finally ran, they will all compile this same
+ `file`.)
+
+Then, a `link` @task depends on every compilation @task. But how can we
+define this dependency? If we try something like...
+
+```python
+# This won't work!
+
+@sane.cmd
+@sane.depends(on_task=compile_)
+def link():
+    ...
+```
+
+...then Python will complain about namespaces, because `compile_` is
+defined in a different scope. This may also happen if you define recipes
+out of order (relative to the dependencies relationships), so sane lets
+you reference other functions by name:
+
+```python
+# This won't work either!
+
+@sane.cmd
+@sane.depends(on_task='compile_')
+def link():
+    ...
+```
+
+This produces a different error message, now coming from sane:
+
+```terminal
+[error] There's more than one @task named compile_.
+
+...
+
+   @sane.cmd
+>  @sane.depends(on_task='compile_')
+   def link():
+
+(You can reference a function directly, instead of a string.)
+(Alternatively, use @tag, and @depends(on_tag=...).)
+```
+
+Obviously, every compilation task we've defined (one for each source
+file) has the same name, "compile_", and because sane can't tell whether
+you mean to define a dependency on every such function or only a
+particular one, it cannot proceed.
+
+To deal with this situation, sane also has the concept of @tags. You can
+tag any @task with one or more strings of your choosing, and define
+dependencies on a @tag. If a @task depends on a @tag, it means it
+depends on every @task with that @tag.
+
+So, in the present example, we would define the linking-compilation
+dependency as follows:
+
+```python
+# This will work!
+
+def make_compile_task(file):
+    @sane.task
+    @sane.tag('compilation')
+    def compile_():
+        ...
+
+for file in source_files:
+    make_compile_task(file)
+
+@sane.cmd
+@sane.depends(on_tag='compilation')
+def link():
+    ...
+```
+
+## The magic of sane, and what to do when it's corrupted
+
+> **TL;DR:** Getting weird results or unexpected behaviour from your
+> sane code? Just call `if __name__ == '__main__': sane.sane()` at the
+> end of your file.
+
+Sane uses the `atexit` module to magically execute the @cmds and @tasks
+after they've all been defined. At the time of writing, the official
+Python documentation does not specify any limitation to the sort of code
+that can (or even should!) be ran inside an `atexit` handler. But, this
+doesn't mean that there's no difference between the `atexit` context,
+and the usual script context: in fact, the sane code responsible for 
+understanding dependencies and running the relevant tasks runs after the
+Python interpreter has begun to shut down. This has several
+consequences: for example, the definition of `__main__` will be
+different by the time your functions run, and some things are simply
+(undocumentedly) not allowed, like spawning new jobs with the
+`concurrent.futures` module. This is not a problem if all you're doing
+is reading and writing to some files and spawning external commands.
+But -- especially when using external modules, which might make
+assumptions about the sort of environment they're being used in -- it
+*may* be a problem.
+
+So, sane lets you opt out of this magic functionality, by letting you
+run the relevant sane bootstrapping code yourself at the end of the
+main file. You can do this with
+
+```python
+[... definitions of @tasks and @cmds, and other contents ...]
+
+if __name__ == '__main__':
+    sane.sane()
+```
+
+## Reference
+
+### @cmd
+
+Defines this function as a sane @cmd.
+
+Example use:
+
+```
+@sane.cmd
+def my_cmd():
+    """Description of this command."""
     pass
 ```
 
-**name:** The name ('str') of the recipe. If unspecified or `None`, it is inferred from the `__name__` attribute of the recipe function. However, recipe names must be unique, so dynamically created recipes (from, e.g., within a loop) typically require this argument.
+A @cmd is a function that the user can invoke from the command line, and
+generally corresponds to some end-goal. 
 
-**hooks:** `list` of `str`ings defining hooks for this recipe.
+A @cmd is allowed to have arguments, but only positional arguments, and
+not keyword arguments. The reasoning is that, since @cmds are allowed to
+be invoked from the command line, keyword arguments cannot be reliably
+specified.
 
-**recipe_deps:** `list` of `str`ing names that this recipe depends on. If an element of the list is not a string, a `name` is inferred from the `__name__` attribute, but this may cause an error if it does not match the given `name`.
+For this same reason, when a @cmd is evoked from the command line, the
+arguments given are passed as strings to the function.
 
-**hook_deps:** `list` of `str`ing hooks that this recipe depends on. This means that the recipe implicitly depends on any recipe tagged with one of these hooks.
+Finally, for the same reason, two @cmds cannot have the same name.
+Therefore, any two functions with @cmd decorators must have different
+`__name__` attributes.
 
-**conditions:** `list` of callables with signature `() -> bool`. If any of these is `True`, the recipe is considered active (see [The Flow of Recipes](#the-flow-of-recipes) for more information).
+When a @cmd is evoked from within other @cmds or @tasks, the dependency
+tree is first ran (see also @depends and @task).
 
-**info:** a description `str`ing to display when recipes are listed with `--list`.
+The user can list all defined @cmds by calling the main script with the
+`--list` flag. If the `--verbose` flag is also given, the `__doc__`
+string of the function and arguments are also listed.
 
-## `sane_run`
+### @task
 
-```python
-sane_run(default=None, cli=True)
+Defines this function as a sane @task.
+
+Example use:
+
+```
+@sane.task
+def my_task():
+    pass
 ```
 
-This function should be called at the end of a recipes file, which will
-trigger command-line arguments parsing, and run either the command-line
-provided recipe, or, if none is specified, the defined `default` recipe.
-(If neither are defined, an error is reported, and the program exits.)
+A @task is a function that sane can call as part of its execution, and
+that may require the execution of other @tasks or @cmds. It generally
+corresponds to a modular step in a process, but that is not expected to
+be the final step.
 
-(There are exceptions to this: `--help`, `--list` and similars will simply output the request information and exit.)
+A @task is not allowed to have arguments (see, instead, @cmd). Likewise,
+@tasks cannot be called upon by the user, and are not listed when the
+user executes the main script with `--list`.
 
-By default, `sane_run` runs in "CLI mode" (`cli=True`).
-However, `sane_run` can also be called in "programmatic mode" (`cli=False`).
-In this mode, command-line arguments will be ignored, and the `default`
-recipe will be ran (observing dependencies, like in CLI mode).
-This is useful if you wish to programmatically call upon a recipe (and its
-subtree).
+@tasks may share the same `__name__` attributes (cf. with @cmd).
+In this case, however, they may only serve as dependencies by means of
+the @tag decorator.
 
-To see the available options and syntax when calling a recipes file (e.g., `make.py`), call
+### @depends
 
-```bash
-python make.py --help
+Defines a dependency between this sane @cmd or @task and another sane function.
+
+Example use:
+
+```
+@sane.task
+def a_task():
+    pass
+
+@sane.cmd
+@sane.depends(on_task=a_task)
+def a_cmd():
+    pass
 ```
 
-## Installation
+Uses:
 
-**It is recommended to just include sane.py in the same directory as your project.** You can do this easily with `curl`
+    @depends(on_task=...)
+    
+    @depends(on_cmd=..., args=(...))
+    
+    @depends(on_tag=...)
 
-```bash
-curl 'https://raw.githubusercontent.com/mikeevmm/sane/master/sane.py' > sane.py
+A @depends decorator specifies that the decorated @cmd or @task requires
+that another @cmd or @task is previously ran. The chain of dependencies
+specified by each @cmd or @task's @depends decorators defines a
+dependency tree which is sorted before execution (much like Make).
+
+Depending on whether @depends is specifying a dependency on either a
+@cmd, a @tag, or on a @task, the required arguments vary.
+
+## Depending on a @cmd
+
+If @depends is specifying a dependency on a @cmd, exactly two arguments
+are required: `on_cmd=` and `args=`.
+
+`on_cmd=` must be either the @cmd decorated function to depend on, or
+its name in the form of a `str`. Since two @cmds cannot share the same
+name (see @cmd), either form is always accepted.
+
+`args=` must be a `tuple` or `list` of arguments to pass to the @cmd
+decorated function to depend on. As such, it must be compatible with
+the `on_cmd=` function's signature. This argument is mandatory, even if
+the `on_cmd=` function takes no arguments; in this case, `args=()`
+must be given.
+
+## Depending on a @task
+
+If @depends is specifying a dependency on a @task, exactly one argument
+is required: `on_task=`.
+
+`on_task=` must be either the @task decorated function to depend on, or
+its name in the form of a `str`. If more than one @task shares the same
+given name, specification by the form of a `str` is disallowed, and a
+@tag should be used instead.
+
+## Depending on a @tag
+
+If @depends is specifying a dependency on a @tag, exactly one argument
+is required: `on_tag=`. This argument may be either a `str`, or a `list`
+or `tuple` of `str`. In the latter case, this is taken to be equivalent
+to a `@depends(on_tag=...)` statement for each of the elements of the
+collection.
+
+@depends(on_tag=...) specifies a dependency on every @task with a
+matching @tag. See @tag for more information.
+
+### @tag
+
+Adds a tag to a sane @cmd or @task.
+
+Example use:
+
+```
+@sane.task
+@sane.tag('compilation')
+def compile_a():
+    pass
+
+@sane.task
+@sane.tag('compilation')
+def compile_b():
+    pass
+
+@sane.cmd
+@sane.depends(on_tag='compilation')
+def link():
+    pass
 ```
 
-However, because it's convenient, `sane` is also available to install from PyPi with
+A @tag is a way to specify dependencies on a group of functions, rather
+than on a specific function (when used in conjunction with
+`@depends(on_tag=...)`; see also @depends).
 
-```bash
-pip install sane-build
-```
+@tag takes exactly one positional argument, which is either a `str` or
+a `list` or `tuple` of `str`. In the latter case, this is taken to be
+equivalent to a `@tag(...)` statement for each of the elements of the
+collection.
 
-## Miscelaneous
+## Why use sane?
 
-### `_Help`
+Sane is 1. extremely portable, and 2. low (mental) overhead. This is
+because (1.) sane is fully contained in a single Python file, so you can
+(and should!) distribute it alongside your codebase, and (2.) sane
+is vanilla Python. The second property makes sane extremely expressive
+-- in fact, sane can do anything Python can -- and prevents the
+introduction of more domain-specific languages.
 
-`sane` provides a few helper functions that are not included by default. These are contained in a `Help` class and can be imported with
+Of course, with great power comes great responsibility, and sane is
+trivially Turing complete; that is, after all, the point. Therefore,
+there are more (and more unpredictable) ways to fail critically. But,
+as Python has shown over the years, this flexibility is not much of a
+problem in practice, especially when compared to the advantages it
+brings, and given that other, more structured, tools are still
+available to be used in tandem.
+              
+Regardless, sane thoroughly attempts to validate the input program, and
+will always try to guide you to write a correct program.
 
-```python
-from sane import _Help as Help
-```
+## Hacking sane
 
-#### `Help.file_condition`
+This section is written for those who either want to
 
-```python
-Help.file_condition(sources=['...'],
-                    targets=['...'])
-```
+* modify sane's internals,
+* better understand how sane works, or
+* are writing sufficiently non-standard Python that sane's inner
+  workings become relevant.
+  
+Of course, this requires examining sane's source code, which is
+available and was written to be as much self-documenting as possible;
+the present text is only accompaniment. It's also expected that you
+understand how Python decorators work, and relevant standard library
+package documentation should also be considered, where applicable.
 
-Returns a callable that is `True` if the newest file in `sources` is older than the oldest files in `targets`, or if any of the files in `targets` does not exist.
+Sane operates on the basis of a singleton, defined in the module as
+`sane._sane`. This singleton is an instantiation of the `sane._Sane`
+class, where all the relevant sane code is defined.
 
-**sources:** `list` of `str`ing path to files.
+All of the user-facing decorators (i.e., @cmd, @task, @depends, @tag)
+are exposed to the user by reexporting these symbols from the singleton
+(see also [Python's documentation regarding import rules][2]).
 
-**targets:** `list` of `str`ing path to files.
+Given this, sane operates in, essentially, two stages: the first stage
+concerns registration of user definitions and validation of user
+arguments, as well as augmenting the given objects with the metadata
+that sane will need in the second stage. In the second stage, sane
+performs any necessary resolution (in particular, and for example,
+matching `str` arguments to the functions they refer to; see @depends),
+parses command-line arguments, and, if applicable, topologically sorts
+dependencies and dispatches execution of the relevant @cmds and @tasks.
 
-#### Logging
+The first stage is a product of the normal execution of the script;
+the singleton is instantiated by means of the `import sane` statement,
+and the code inside each of decorators handles argument validation and
+metadata registration as appropriate. This does imply some limitations,
+as decorators are evaluated "as they appear". This means that, for
+example, a @depends decorator cannot validate at its evaluation time
+whether a dependency given by name (`str`) is valid or not, as it may
+happen that the corresponding definition appears later in the file, and
+so has not yet been recorded. Thus, the second stage.
 
-The `sane` logging functions are exposed in `Help` as `log`, `warn`, `error`. These take a single string as a message, and the `error` function terminates the program with `exit(1)`.
+The second stage corresponds to the `_sane.main` function, and is also
+exposed to the user (cf. the
+[magic section](#The-magic-of-sane-and-what-to-do-when-its-corrupted)).
+By default, sane runs in "magic mode", wherein the second stage is
+registered as an [atexit][3] callback. Ensuring that this code only runs
+when the script has successfully terminated requires monkey patching the
+possible exit functions (namely, `sys.exit` and `builtins.exit`). Cf.
+the relevant code for details. In any case, the code guards against
+running more than once (and so can be prevented from running at all by
+manipulation of the singleton's state).
 
-### Concurrency
+Finally, note that whenever an object is augmented with sane-relevant
+metadata, this metadata is stored in a `dict` attribute named
+`__sane__`. Inspection of this dictionary at different points of
+execution may help with understanding sane's operation.
 
-Recipes at the same depth are ran concurrently with a [ThreadPoolExecutor](https://docs.python.org/3/library/concurrent.futures.html#concurrent.futures.ThreadPoolExecutor). You can specify the number of threads to use with `--threads` (as of version 7.0). By default a single thread is used.
+## Sane's license terms
 
-### Calling `python ...` is Gruesome
+Sane is distributed under a [CC-BY-NC-SA-4.0][4] license. *Informally*,
+this means you are free to use sane in a non-commercial context (i.e.,
+personally and academically), as well as modify sane, as long as you:
 
-I suggest defining the following alias
+- Give proper credit and provide a link to the license (so, don't
+  modify sane's __doc__ string at the top of the file),
+- Indicate if and what changes were made,
+- Share your modifications of sane under this same license.
+ 
+For uses of sane under different terms, please contact the author.
 
-```bash
-alias sane='python3 make.py'
-```
+If you use do use sane under the CC-BY-NC-SA-4.0 terms, the author adds
+a (non-legally enforceable) clause that they would be very thankful if
+you would [buy them a coffee][5].
 
-## License
+## TL;DR
 
-This tool is licensed under an MIT license.
-See LICENSE for details.
-The LICENSE is included at the top of `sane.py`, so you may redistribute this file alone freely.
+1. Import sane.
+2. Use @sane.cmd for anything you'd want to run from the command line,
+   and @sane.task for anything you need to get done.
+3. Decorate @cmds and @tasks with @depends, as appropriate.
+4. Use @tag if you want to depend on a family of @tasks.
+5. run `python your_script.py [sane args] -- [your args]`.
 
-## Support
+## Links
 
-💕 If you liked sane, consider [buying me a coffee](https://www.paypal.me/miguelmurca/2.50).
+[1]: https://en.m.wikipedia.org/wiki/Baba_de_camelo
+[2]: https://docs.python.org/3/reference/simple_stmts.html#import
+[3]: https://docs.python.org/3/library/atexit.html
+[4]: http://creativecommons.org/licenses/by-nc-sa/4.0/.
+[5]: https://www.paypal.me/miguelmurca/4.00
