@@ -23,7 +23,7 @@ __main__ = sys.modules['__main__']
 
 class _Sane:
 
-    VERSION = '7.0'
+    VERSION = '7.1'
     ANSI = re.compile(r'\x1B(?:[@-Z\\-_]|\[[0-?]*[ -/]*[@-~])')
     Context = namedtuple(
         'Context', ('filename', 'lineno', 'code_context', 'index'))
@@ -1356,8 +1356,10 @@ class _Sane:
             sys.exit(1)
 
         func = args[0]
+        position_incorrect = (not hasattr(func, '__sane__') or
+                              func.__sane__['type'] is None)
 
-        if not hasattr(func, '__sane__'):
+        if position_incorrect:
             self.error('@default must come before @cmd.')
             self.show_context(context, 'error')
             self.hint('(Add a @cmd decorator to this function, '
@@ -1487,7 +1489,7 @@ class _Sane:
                         self.log(f'Running {str_func}({str_args})')
 
                     try:
-                        self.catch_thread_exception(func)(*args)
+                        (self.catch_thread_exception(func))(*args)
                     except Exception as e:
                         self.report_func_failed(func, e)
             else:
@@ -1506,7 +1508,7 @@ class _Sane:
                         self.log(f'Running {str_jobs}.')
 
                 futures = (self.thread_exe.submit(
-                            self.catch_thread_exception(func), args)
+                            self.catch_thread_exception(func), *args)
                            for func, args in slice_)
                 for future in futures:
                     try:
